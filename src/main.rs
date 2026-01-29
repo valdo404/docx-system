@@ -6,6 +6,8 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use clap::Parser;
 
 #[cfg(feature = "runtime-server")]
+mod response;
+#[cfg(feature = "runtime-server")]
 mod docx_tools;
 #[cfg(feature = "runtime-server")]
 mod docx_handler;

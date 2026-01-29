@@ -1739,7 +1739,7 @@ impl DocxToolsProvider {
                 if is_search_shape {
                     let mut obj = serde_json::json!({"success": true});
                     if let Some(map) = metadata.as_object() {
-                        for (k, v) in map { obj[&k[..]] = v.clone(); }
+                        for (k, v) in map { obj[&k[..]] = serde_json::Value::clone(v); }
                     }
                     obj
                 } else {

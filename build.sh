@@ -43,11 +43,11 @@ fi
 BUILD_MODE=${1:-release}
 FEATURES=${2:-}
 
-# Always include build-bin feature (required for binary target)
+# Always include build-bin and runtime-server features (required for binary target)
 if [ -n "$FEATURES" ]; then
-    FEATURES="build-bin,$FEATURES"
+    FEATURES="build-bin,runtime-server,$FEATURES"
 else
-    FEATURES="build-bin"
+    FEATURES="build-bin,runtime-server"
 fi
 
 if [ "$BUILD_MODE" = "debug" ]; then
