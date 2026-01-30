@@ -25,7 +25,7 @@ public sealed class ReadSectionTool
         [Description("Session ID of the document.")] string doc_id,
         [Description("Zero-based section index. Omit or use -1 to list all sections.")] int? section_index = null,
         [Description("Output format: json, text, or summary. Default: json.")] string? format = "json",
-        [Description("Number of elements to skip within the section. Default: 0.")] int? offset = null,
+        [Description("Number of elements to skip. Negative values count from the end (e.g. -10 = last 10 elements). Default: 0.")] int? offset = null,
         [Description("Maximum number of elements to return (1-50). Default: 50.")] int? limit = null)
     {
         var session = sessions.Get(doc_id);
@@ -48,7 +48,9 @@ public sealed class ReadSectionTool
         var sectionElements = sections[idx].Elements;
         var totalCount = sectionElements.Count;
 
-        var effectiveOffset = Math.Max(0, offset ?? 0);
+        var rawOffset = offset ?? 0;
+        // Negative offset counts from the end: -10 means start at (total - 10)
+        var effectiveOffset = rawOffset < 0 ? Math.Max(0, totalCount + rawOffset) : rawOffset;
         var effectiveLimit = Math.Clamp(limit ?? 50, 1, 50);
 
         if (effectiveOffset >= totalCount)

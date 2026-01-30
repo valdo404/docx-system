@@ -177,6 +177,48 @@ public class ReadSectionTests : IDisposable
         Assert.Equal(2, breakdown.GetProperty("paragraphs").GetInt32());
     }
 
+    [Fact]
+    public void ReadSectionNegativeOffsetCountsFromEnd()
+    {
+        // Section 1 has 4 elements; -2 means offset = 2
+        var result = DocxMcp.Tools.ReadSectionTool.ReadSection(
+            _sessions, _session.Id, section_index: 1, offset: -2);
+        using var doc = JsonDocument.Parse(result);
+
+        Assert.Equal(2, doc.RootElement.GetProperty("offset").GetInt32());
+        Assert.Equal(2, doc.RootElement.GetProperty("count").GetInt32());
+
+        var items = doc.RootElement.GetProperty("items");
+        Assert.Equal("Section two paragraph 2", items[0].GetProperty("text").GetString());
+        Assert.Equal("Section two paragraph 3", items[1].GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public void ReadSectionNegativeOffsetLargerThanTotalClampsToZero()
+    {
+        var result = DocxMcp.Tools.ReadSectionTool.ReadSection(
+            _sessions, _session.Id, section_index: 1, offset: -100);
+        using var doc = JsonDocument.Parse(result);
+
+        Assert.Equal(0, doc.RootElement.GetProperty("offset").GetInt32());
+        Assert.Equal(4, doc.RootElement.GetProperty("count").GetInt32());
+    }
+
+    [Fact]
+    public void ReadSectionNegativeOffsetWithLimit()
+    {
+        // Section 1 has 4 elements; -3 means offset = 1, limit = 2
+        var result = DocxMcp.Tools.ReadSectionTool.ReadSection(
+            _sessions, _session.Id, section_index: 1, offset: -3, limit: 2);
+        using var doc = JsonDocument.Parse(result);
+
+        Assert.Equal(1, doc.RootElement.GetProperty("offset").GetInt32());
+        Assert.Equal(2, doc.RootElement.GetProperty("count").GetInt32());
+
+        var items = doc.RootElement.GetProperty("items");
+        Assert.Equal("Section two paragraph 1", items[0].GetProperty("text").GetString());
+    }
+
     public void Dispose()
     {
         _sessions.Close(_session.Id);

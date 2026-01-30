@@ -148,14 +148,45 @@ public class QueryPaginationTests : IDisposable
     }
 
     [Fact]
-    public void NegativeOffsetTreatedAsZero()
+    public void NegativeOffsetCountsFromEnd()
     {
         var result = DocxMcp.Tools.QueryTool.Query(
             _sessions, _session.Id, "/body/paragraph[*]", "json", offset: -5);
         using var doc = JsonDocument.Parse(result);
 
+        // -5 on 20 elements means offset = 15
+        Assert.Equal(15, doc.RootElement.GetProperty("offset").GetInt32());
+        Assert.Equal(5, doc.RootElement.GetProperty("count").GetInt32());
+
+        var firstItem = doc.RootElement.GetProperty("items")[0];
+        Assert.Equal("Paragraph 15", firstItem.GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public void NegativeOffsetLargerThanTotalClampsToZero()
+    {
+        var result = DocxMcp.Tools.QueryTool.Query(
+            _sessions, _session.Id, "/body/paragraph[*]", "json", offset: -100);
+        using var doc = JsonDocument.Parse(result);
+
+        // -100 on 20 elements clamps to 0
         Assert.Equal(0, doc.RootElement.GetProperty("offset").GetInt32());
         Assert.Equal(20, doc.RootElement.GetProperty("count").GetInt32());
+    }
+
+    [Fact]
+    public void NegativeOffsetWithLimit()
+    {
+        var result = DocxMcp.Tools.QueryTool.Query(
+            _sessions, _session.Id, "/body/paragraph[*]", "json", offset: -10, limit: 3);
+        using var doc = JsonDocument.Parse(result);
+
+        // -10 on 20 elements means offset = 10
+        Assert.Equal(10, doc.RootElement.GetProperty("offset").GetInt32());
+        Assert.Equal(3, doc.RootElement.GetProperty("count").GetInt32());
+
+        var firstItem = doc.RootElement.GetProperty("items")[0];
+        Assert.Equal("Paragraph 10", firstItem.GetProperty("text").GetString());
     }
 
     public void Dispose()
