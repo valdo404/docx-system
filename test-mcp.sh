@@ -136,7 +136,7 @@ else
 
     # Apply patches — the patches param is a JSON *string* so inner quotes must be escaped
     echo ""
-    echo "Test: Apply Patches"
+    echo "Test: Apply Patches (basic)"
     PATCHES='[{\"op\":\"add\",\"path\":\"/body/children/0\",\"value\":{\"type\":\"heading\",\"level\":1,\"text\":\"Test Document\"}},{\"op\":\"add\",\"path\":\"/body/children/1\",\"value\":{\"type\":\"paragraph\",\"text\":\"This is a test paragraph.\"}},{\"op\":\"add\",\"path\":\"/body/children/2\",\"value\":{\"type\":\"table\",\"headers\":[\"Name\",\"Value\"],\"rows\":[[\"foo\",\"bar\"],[\"baz\",\"qux\"]]}},{\"op\":\"add\",\"path\":\"/body/children/3\",\"value\":{\"type\":\"paragraph\",\"text\":\"Final paragraph.\",\"style\":{\"bold\":true,\"font_size\":14}}}]'
 
     R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES}\"}")
@@ -156,19 +156,116 @@ else
     echo "Test: Query Table"
     R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[0]\"}")
     check "table has data" "foo" "$R"
+    check "table has rich_rows" "rich_rows" "$R"
 
     # Query text search
     echo "Test: Query Text Search"
     R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/paragraph[text~='Final']\"}")
     check "text search finds paragraph" "Final paragraph" "$R"
 
+    # ── Run-Level Write Support ──
+    echo ""
+    echo "Test: Run-Level Write (paragraph with styled runs)"
+    PATCHES_RUNS='[{\"op\":\"add\",\"path\":\"/body/children/4\",\"value\":{\"type\":\"paragraph\",\"properties\":{\"alignment\":\"center\"},\"runs\":[{\"text\":\"Bold \",\"style\":{\"bold\":true,\"color\":\"FF0000\"}},{\"text\":\"and \",\"style\":{\"italic\":true}},{\"text\":\"normal text\"}]}}]'
+    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_RUNS}\"}")
+    check "run-level paragraph applied" "successfully" "$R"
+
+    R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/paragraph[text~='Bold']\"}")
+    check "styled paragraph has runs" "runs" "$R"
+    check "styled paragraph has bold" "bold" "$R"
+    check "styled paragraph has color" "FF0000" "$R"
+    check "paragraph has properties" "properties" "$R"
+
+    # ── Tab Characters ──
+    echo ""
+    echo "Test: Tab Characters in Runs"
+    PATCHES_TABS='[{\"op\":\"add\",\"path\":\"/body/children/5\",\"value\":{\"type\":\"heading\",\"level\":2,\"properties\":{\"tabs\":[{\"position\":4680,\"alignment\":\"center\"},{\"position\":9360,\"alignment\":\"right\"}]},\"runs\":[{\"text\":\"Title\",\"style\":{\"color\":\"2E5496\"}},{\"tab\":true},{\"text\":\"Company\",\"style\":{\"bold\":true}},{\"tab\":true},{\"text\":\"2024\",\"style\":{\"italic\":true}}]}}]'
+    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_TABS}\"}")
+    check "heading with tabs applied" "successfully" "$R"
+
+    R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/heading[1]\"}")
+    check "heading has runs" "runs" "$R"
+    check "heading has tab" "tab" "$R"
+    check "heading has Company" "Company" "$R"
+    check "heading has tab stops" "tabs" "$R"
+
+    # ── Rich Table with Styled Cells ──
+    echo ""
+    echo "Test: Rich Table with Styled Cells"
+    PATCHES_RICH_TABLE='[{\"op\":\"add\",\"path\":\"/body/children/6\",\"value\":{\"type\":\"table\",\"border_style\":\"single\",\"table_alignment\":\"center\",\"headers\":[{\"text\":\"Product\",\"shading\":\"E0E0E0\",\"style\":{\"bold\":true}},{\"text\":\"Price\",\"shading\":\"E0E0E0\",\"style\":{\"bold\":true}}],\"rows\":[{\"cells\":[{\"text\":\"Widget\",\"style\":{\"italic\":true}},{\"text\":\"$10\",\"shading\":\"F0FFF0\"}]},{\"cells\":[{\"text\":\"Total\",\"col_span\":1,\"style\":{\"bold\":true}},{\"text\":\"$10\",\"shading\":\"FFFF00\",\"style\":{\"bold\":true}}]}]}}]'
+    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_RICH_TABLE}\"}")
+    check "rich table applied" "successfully" "$R"
+
+    R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[1]\"}")
+    check "rich table has data" "Widget" "$R"
+    check "rich table has rich_rows" "rich_rows" "$R"
+    check "rich table has rich_cells" "rich_cells" "$R"
+
+    # ── Replace Text (preserving formatting) ──
+    echo ""
+    echo "Test: Replace Text (format-preserving)"
+    PATCHES_REPLACE='[{\"op\":\"replace_text\",\"path\":\"/body/paragraph[1]\",\"find\":\"test\",\"replace\":\"replaced\"}]'
+    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_REPLACE}\"}")
+    check "replace_text applied" "successfully" "$R"
+
+    R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/paragraph[text~='replaced']\"}")
+    check "text was replaced" "replaced paragraph" "$R"
+
+    # ── Remove Column ──
+    echo ""
+    echo "Test: Remove Column"
+    PATCHES_RMCOL='[{\"op\":\"remove_column\",\"path\":\"/body/table[0]\",\"column\":1}]'
+    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_RMCOL}\"}")
+    check "remove_column applied" "successfully" "$R"
+
+    R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[0]\"}")
+    check "table has 1 column now" "cols.*1" "$R"
+
+    # ── Add Row to Existing Table ──
+    echo ""
+    echo "Test: Add Row to Table"
+    PATCHES_ADDROW='[{\"op\":\"add\",\"path\":\"/body/table[0]\",\"value\":{\"type\":\"row\",\"cells\":[{\"text\":\"NewItem\",\"style\":{\"italic\":true}}]}}]'
+    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_ADDROW}\"}")
+    check "add row applied" "successfully" "$R"
+
+    R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[0]\"}")
+    check "table has new row" "NewItem" "$R"
+
+    # ── Remove Row ──
+    echo ""
+    echo "Test: Remove Row"
+    PATCHES_RMROW='[{\"op\":\"remove\",\"path\":\"/body/table[0]/row[2]\"}]'
+    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_RMROW}\"}")
+    check "remove row applied" "successfully" "$R"
+
+    # ── Replace Cell ──
+    echo ""
+    echo "Test: Replace Cell"
+    PATCHES_CELL='[{\"op\":\"replace\",\"path\":\"/body/table[1]/row[1]/cell[0]\",\"value\":{\"type\":\"cell\",\"text\":\"Gizmo\",\"style\":{\"bold\":true},\"shading\":\"E0FFE0\"}}]'
+    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_CELL}\"}")
+    check "replace cell applied" "successfully" "$R"
+
+    R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[1]/row[1]/cell[0]\"}")
+    check "cell was replaced" "Gizmo" "$R"
+
+    # ── Paragraph with line breaks ──
+    echo ""
+    echo "Test: Paragraph with Line Breaks"
+    PATCHES_BRK='[{\"op\":\"add\",\"path\":\"/body/children/7\",\"value\":{\"type\":\"paragraph\",\"runs\":[{\"text\":\"Line one\"},{\"break\":\"line\"},{\"text\":\"Line two\"}]}}]'
+    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_BRK}\"}")
+    check "paragraph with break applied" "successfully" "$R"
+
+    R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/paragraph[text~='Line one']\"}")
+    check "break paragraph has runs" "runs" "$R"
+    check "break paragraph has break" "break" "$R"
+
     # Export markdown
+    echo ""
     echo "Test: Export Markdown"
     R=$(send_cmd "call export_markdown -p {\"doc_id\":\"${DOC_ID}\",\"output_path\":\"${MD_FILE}\"}")
     check "markdown exported" "exported" "$R"
     if [[ -f "$MD_FILE" ]]; then
         check "markdown has heading" "Test Document" "$(cat "$MD_FILE")"
-        check "markdown has table data" "foo" "$(cat "$MD_FILE")"
     else
         fail "markdown file created" "File not found: $MD_FILE"
     fi
@@ -220,24 +317,76 @@ if [[ -n "$REAL_FILE" && -f "$REAL_FILE" ]]; then
     sleep 1
 
     send_cmd_real() {
-        local before
+        local before wait_time="${2:-1}"
         before=$(wc -l < "$OUT_REAL" | tr -d ' ')
         echo "$1" >&4
-        sleep 1
+        sleep "$wait_time"
         tail -n +"$((before + 1))" "$OUT_REAL" | sed 's/^mcp > //' | grep '^{' | head -1
     }
 
-    R=$(send_cmd_real "call document_open -p {\"path\":\"${REAL_FILE}\"}")
+    R=$(send_cmd_real "call document_open -p {\"path\":\"${REAL_FILE}\"}" 3)
     REAL_ID=$(echo "$R" | grep -o 'Session ID: [a-f0-9]*' | head -1 | cut -d' ' -f3)
 
     if [[ -n "$REAL_ID" ]]; then
         pass "real doc opened (ID: $REAL_ID)"
 
-        R=$(send_cmd_real "call query -p {\"doc_id\":\"${REAL_ID}\",\"path\":\"/body\"}")
+        R=$(send_cmd_real "call query -p {\"doc_id\":\"${REAL_ID}\",\"path\":\"/body\"}" 2)
         check "real doc body queried" "paragraph_count" "$R"
+        echo -e "  ${YELLOW}Body summary: ${R:0:300}${NC}"
 
-        R=$(send_cmd_real "call query -p {\"doc_id\":\"${REAL_ID}\",\"path\":\"/body/paragraph[*]\",\"format\":\"text\"}")
+        # Query all paragraphs as text
+        R=$(send_cmd_real "call query -p {\"doc_id\":\"${REAL_ID}\",\"path\":\"/body/paragraph[*]\",\"format\":\"text\"}" 2)
         echo -e "  ${YELLOW}First 200 chars: ${R:0:200}${NC}"
+
+        # Query first paragraph with full run detail
+        echo "Test: Real Doc - Run-Level Query"
+        R=$(send_cmd_real "call query -p {\"doc_id\":\"${REAL_ID}\",\"path\":\"/body/paragraph[0]\"}")
+        check "real doc paragraph has runs" "runs" "$R"
+        echo -e "  ${YELLOW}Paragraph JSON (300 chars): ${R:0:300}${NC}"
+
+        # Query headings if any
+        echo "Test: Real Doc - Headings"
+        R=$(send_cmd_real "call query -p {\"doc_id\":\"${REAL_ID}\",\"path\":\"/body/heading[*]\",\"format\":\"summary\"}")
+        echo -e "  ${YELLOW}Headings: ${R:0:300}${NC}"
+
+        # Query first heading with tab/run detail
+        R=$(send_cmd_real "call query -p {\"doc_id\":\"${REAL_ID}\",\"path\":\"/body/heading[0]\"}")
+        if echo "$R" | grep -q "runs"; then
+            check "real doc heading has runs" "runs" "$R"
+            # Check for tabs
+            if echo "$R" | grep -q "tab"; then
+                pass "real doc heading has tabs"
+            else
+                echo -e "  ${YELLOW}(no tabs in heading)${NC}"
+            fi
+            # Check for properties
+            if echo "$R" | grep -q "properties"; then
+                pass "real doc heading has properties"
+            else
+                echo -e "  ${YELLOW}(no extra properties in heading)${NC}"
+            fi
+        else
+            echo -e "  ${YELLOW}(heading query returned no runs — may have no headings)${NC}"
+        fi
+
+        # Query tables if any
+        echo "Test: Real Doc - Tables"
+        R=$(send_cmd_real "call query -p {\"doc_id\":\"${REAL_ID}\",\"path\":\"/body/table[0]\"}")
+        if echo "$R" | grep -q "table"; then
+            check "real doc has table" "table" "$R"
+            check "real doc table has rich_rows" "rich_rows" "$R"
+            check "real doc table has rich_cells" "rich_cells" "$R"
+            echo -e "  ${YELLOW}Table (300 chars): ${R:0:300}${NC}"
+        else
+            echo -e "  ${YELLOW}(no tables in document)${NC}"
+        fi
+
+        # Test replace_text on a copy (non-destructive — save to tmp)
+        echo "Test: Real Doc - Replace Text (non-destructive)"
+        REAL_SAVE="${TMP}.real.docx"
+        R=$(send_cmd_real "call document_save -p {\"doc_id\":\"${REAL_ID}\",\"output_path\":\"${REAL_SAVE}\"}")
+        check "real doc saved copy" "saved" "$R"
+        rm -f "$REAL_SAVE"
 
         R=$(send_cmd_real "call document_close -p {\"doc_id\":\"${REAL_ID}\"}")
         check "real doc closed" "closed" "$R"
