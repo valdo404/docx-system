@@ -60,8 +60,12 @@ public class QueryTests : IDisposable
     {
         var result = DocxMcp.Tools.QueryTool.Query(_sessions, _session.Id, "/body/paragraph[*]");
         using var doc = JsonDocument.Parse(result);
-        Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
-        Assert.Equal(3, doc.RootElement.GetArrayLength()); // heading + 2 paragraphs
+        // Multiple elements are now wrapped in a pagination envelope
+        Assert.Equal(JsonValueKind.Object, doc.RootElement.ValueKind);
+        Assert.Equal(3, doc.RootElement.GetProperty("total").GetInt32()); // heading + 2 paragraphs
+        Assert.Equal(3, doc.RootElement.GetProperty("count").GetInt32());
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.GetProperty("items").ValueKind);
+        Assert.Equal(3, doc.RootElement.GetProperty("items").GetArrayLength());
     }
 
     [Fact]
