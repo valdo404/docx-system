@@ -13,7 +13,8 @@ namespace DocxMcp.Tools;
 public sealed class PatchTool
 {
     [McpServerTool(Name = "apply_patch"), Description(
-        "Modify a document using JSON patches (RFC 6902 adapted for OOXML).\n\n" +
+        "Modify a document using JSON patches (RFC 6902 adapted for OOXML).\n" +
+        "Maximum 10 operations per call. Split larger changes into multiple calls.\n\n" +
         "Operations:\n" +
         "  add — Insert element at path. Use /body/children/N for positional insert.\n" +
         "  replace — Replace element or property at path.\n" +
@@ -47,7 +48,7 @@ public sealed class PatchTool
     public static string ApplyPatch(
         SessionManager sessions,
         [Description("Session ID of the document.")] string doc_id,
-        [Description("JSON array of patch operations.")] string patches)
+        [Description("JSON array of patch operations (max 10 per call).")] string patches)
     {
         var session = sessions.Get(doc_id);
         var wpDoc = session.Document;
@@ -66,6 +67,10 @@ public sealed class PatchTool
 
         if (patchArray.ValueKind != JsonValueKind.Array)
             return "Error: patches must be a JSON array.";
+
+        var patchCount = patchArray.GetArrayLength();
+        if (patchCount > 10)
+            return $"Error: Too many operations ({patchCount}). Maximum is 10 per call. Split into multiple calls.";
 
         var results = new List<string>();
         int applied = 0;

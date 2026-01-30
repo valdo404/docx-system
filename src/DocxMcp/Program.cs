@@ -29,6 +29,8 @@ builder.Services
     .WithStdioServerTransport()
     .WithTools<DocumentTools>()
     .WithTools<QueryTool>()
+    .WithTools<CountTool>()
+    .WithTools<ReadSectionTool>()
     .WithTools<PatchTool>()
     .WithTools<ExportTools>();
 

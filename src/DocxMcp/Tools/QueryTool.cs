@@ -17,20 +17,27 @@ public sealed class QueryTool
     [McpServerTool(Name = "query"), Description(
         "Read any part of a document using typed paths. " +
         "Returns structured JSON, plain text, or a summary depending on the format parameter.\n\n" +
+        "IMPORTANT: Prefer direct access with indexed paths (e.g. /body/paragraph[0], /body/table[2]) " +
+        "over wildcard queries. Use count_elements first to know how many elements exist, " +
+        "then access them individually or in small ranges.\n\n" +
+        "When using wildcard [*] selectors, results are paginated with a maximum of 50 elements per call. " +
+        "Use offset and limit to paginate through large result sets.\n\n" +
         "Path examples:\n" +
         "  /body — full document structure summary\n" +
-        "  /body/paragraph[0] — first paragraph\n" +
-        "  /body/paragraph[*] — all paragraphs\n" +
-        "  /body/table[0] — first table\n" +
-        "  /body/heading[*] — all headings\n" +
+        "  /body/paragraph[0] — first paragraph (preferred: direct access)\n" +
+        "  /body/table[0] — first table (preferred: direct access)\n" +
+        "  /body/paragraph[*] — all paragraphs (paginated, max 50)\n" +
+        "  /body/heading[*] — all headings (paginated, max 50)\n" +
         "  /body/paragraph[text~='hello'] — paragraphs containing 'hello'\n" +
         "  /metadata — document properties\n" +
         "  /styles — style definitions")]
     public static string Query(
         SessionManager sessions,
         [Description("Session ID of the document.")] string doc_id,
-        [Description("Typed path to query (e.g. /body, /body/paragraph[0], /body/table[*]).")] string path,
-        [Description("Output format: json, text, or summary. Default: json.")] string? format = "json")
+        [Description("Typed path to query (e.g. /body/paragraph[0], /body/table[0]). Prefer direct indexed access.")] string path,
+        [Description("Output format: json, text, or summary. Default: json.")] string? format = "json",
+        [Description("Number of elements to skip when querying multiple elements. Default: 0.")] int? offset = null,
+        [Description("Maximum number of elements to return (1-50). Default: 50.")] int? limit = null)
     {
         var session = sessions.Get(doc_id);
         var doc = session.Document;
@@ -45,6 +52,39 @@ public sealed class QueryTool
 
         var parsed = DocxPath.Parse(path);
         var elements = PathResolver.Resolve(parsed, doc);
+
+        // Apply pagination when multiple elements are returned
+        var totalCount = elements.Count;
+        if (totalCount > 1)
+        {
+            var effectiveOffset = Math.Max(0, offset ?? 0);
+            var effectiveLimit = Math.Clamp(limit ?? 50, 1, 50);
+
+            if (effectiveOffset >= totalCount)
+                return $"{{\"total\": {totalCount}, \"offset\": {effectiveOffset}, \"limit\": {effectiveLimit}, \"items\": []}}";
+
+            elements = elements
+                .Skip(effectiveOffset)
+                .Take(effectiveLimit)
+                .ToList();
+
+            // Wrap result with pagination metadata
+            var formatted = (format?.ToLowerInvariant() ?? "json") switch
+            {
+                "json" => FormatJson(elements),
+                "text" => FormatText(elements),
+                "summary" => FormatSummary(elements),
+                _ => FormatJson(elements)
+            };
+
+            if ((format?.ToLowerInvariant() ?? "json") == "json")
+            {
+                return $"{{\"total\": {totalCount}, \"offset\": {effectiveOffset}, \"limit\": {effectiveLimit}, " +
+                       $"\"count\": {elements.Count}, \"items\": {formatted}}}";
+            }
+
+            return $"[{elements.Count}/{totalCount} elements, offset {effectiveOffset}]\n{formatted}";
+        }
 
         return (format?.ToLowerInvariant() ?? "json") switch
         {
@@ -163,7 +203,7 @@ public sealed class QueryTool
         return sb.ToString();
     }
 
-    private static JsonNode ElementToJson(OpenXmlElement element) => element switch
+    internal static JsonNode ElementToJson(OpenXmlElement element) => element switch
     {
         Paragraph p => ParagraphToJson(p),
         Table t => TableToJson(t),
