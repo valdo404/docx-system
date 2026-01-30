@@ -2,7 +2,7 @@
 
 ## Status
 
-**Draft** — January 2026
+**Implemented** — January 2026
 
 ## Context
 
@@ -13,6 +13,25 @@ After evaluating the Rust ecosystem (`docx-rs`, `docx-rust`, `ooxmlsdk`) and cro
 ## Decision
 
 Rewrite the MCP server in **.NET 10** using the **Open XML SDK** (`DocumentFormat.OpenXml`), and migrate from a tool-per-action model to a **patch-based architecture**.
+
+### Scope Decision: No XML Patch
+
+The `apply_xml_patch` tool (XPath-based raw OOXML manipulation) described in the original design is **not implemented**. Reasons:
+
+- **Too fragile** — XPath over OOXML namespaces is error-prone and hard to get right, especially for LLM callers who would need to produce valid namespace-qualified XML fragments
+- **Maintenance burden** — two patch systems (JSON + XML) doubles the testing and debugging surface
+- **JSON patches cover the common cases** — the typed path model with `add`/`replace`/`remove`/`move`/`copy` operations handles the scenarios that matter for document authoring
+
+If edge cases arise that the JSON patch model cannot handle, the appropriate response is to extend the JSON patch value types rather than introduce a parallel XML escape hatch.
+
+### MCP SDK
+
+The implementation uses the **official MCP C# SDK** (`ModelContextProtocol` NuGet package, maintained by Microsoft and Anthropic) instead of a hand-rolled JSON-RPC transport. This provides:
+
+- Attribute-based tool registration (`[McpServerTool]`, `[McpServerToolType]`)
+- Dependency injection for `SessionManager` and other services
+- Automatic stdio transport via `WithStdioServerTransport()`
+- Protocol-compliant request/response handling
 
 ## Goals
 
@@ -32,8 +51,9 @@ Rewrite the MCP server in **.NET 10** using the **Open XML SDK** (`DocumentForma
 |--------|--------|
 | Runtime | .NET 10 (LTS) |
 | OOXML library | `DocumentFormat.OpenXml` 3.x |
+| MCP SDK | `ModelContextProtocol` 0.7.x (official C# SDK) |
 | Compilation | NativeAOT (standalone ~30-40 MB binary) |
-| Transport | stdio JSON-RPC (MCP protocol) |
+| Transport | stdio JSON-RPC via MCP SDK |
 | Logging | stderr only (MCP requirement) |
 
 ### Document Session Model
@@ -62,7 +82,6 @@ public sealed class DocxSession : IDisposable
     {
         var stream = new MemoryStream();
         var doc = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document);
-        // Initialize minimal document structure
         doc.AddMainDocumentPart();
         doc.MainDocumentPart!.Document = new Document(new Body());
         return new DocxSession(doc, stream, sourcePath: null);
@@ -79,54 +98,50 @@ public sealed class DocxSession : IDisposable
 ### Project Structure
 
 ```
-docx-mcp-dotnet/
-├── src/
-│   ├── Program.cs                  # MCP stdio transport
-│   ├── McpServer.cs                # JSON-RPC dispatch
-│   ├── SessionManager.cs           # DocxSession lifecycle
-│   ├── Tools/
-│   │   ├── DocumentTools.cs        # open, create, save, close
-│   │   ├── QueryTool.cs            # unified query
-│   │   ├── PatchTool.cs            # apply_patch (JSON)
-│   │   ├── XmlPatchTool.cs         # apply_xml_patch (XPath)
-│   │   └── ExportTools.cs          # PDF, HTML, Markdown
-│   ├── Paths/
-│   │   ├── DocxPath.cs             # Typed path model
-│   │   ├── PathSegment.cs          # Segment types
-│   │   ├── Selector.cs             # Index, text, style selectors
-│   │   ├── PathParser.cs           # String -> DocxPath
-│   │   ├── PathSchema.cs           # Structural validation
-│   │   └── PathResolver.cs         # DocxPath -> OpenXmlElement
-│   └── Helpers/
-│       ├── OpenXmlExtensions.cs    # SDK convenience methods
-│       └── ElementFactory.cs       # Build elements from JSON
-├── tests/
-│   ├── PathParserTests.cs
-│   ├── PathResolverTests.cs
-│   ├── PatchEngineTests.cs
-│   └── QueryTests.cs
-└── publish.sh                      # NativeAOT per platform
+src/DocxMcp/
+├── Program.cs                  # MCP server bootstrap (official SDK)
+├── DocxSession.cs              # Document session (MemoryStream + SDK)
+├── SessionManager.cs           # Thread-safe session lifecycle
+├── Tools/
+│   ├── DocumentTools.cs        # open, create, save, close, list
+│   ├── QueryTool.cs            # unified query via typed paths
+│   ├── PatchTool.cs            # apply_patch (JSON only)
+│   └── ExportTools.cs          # PDF, HTML, Markdown export
+├── Paths/
+│   ├── DocxPath.cs             # Typed path model
+│   ├── PathSegment.cs          # Segment types
+│   ├── Selector.cs             # Index, text, style selectors
+│   ├── PathParser.cs           # String → DocxPath
+│   ├── PathSchema.cs           # Structural validation
+│   └── PathResolver.cs         # DocxPath → OpenXmlElement
+└── Helpers/
+    ├── OpenXmlExtensions.cs    # SDK convenience methods
+    └── ElementFactory.cs       # JSON value → OpenXmlElement
+
+tests/DocxMcp.Tests/
+├── PathParserTests.cs
+├── PathResolverTests.cs
+├── PatchEngineTests.cs
+└── QueryTests.cs
 ```
 
 ---
 
 ## Part 2: MCP Tool Surface
 
-The current Rust server exposes 30+ individual tools (`add_paragraph`, `add_table`, `set_header`, etc.). The new server exposes **5 tools**:
+The server exposes **7 tools** (down from 30+ in the Rust implementation):
 
 | Tool | Purpose |
 |------|---------|
 | `document_open` | Open or create a document, returns session ID |
-| `document_save` | Save to disk, optionally export (PDF, HTML) |
+| `document_save` | Save to disk |
 | `document_close` | Release session |
+| `document_list` | List open sessions |
 | `query` | Read any part of the document via typed paths |
 | `apply_patch` | Modify the document via JSON patches |
+| `export_pdf` / `export_html` / `export_markdown` | Export to other formats |
 
-Optional sixth tool for power users:
-
-| Tool | Purpose |
-|------|---------|
-| `apply_xml_patch` | Modify raw OOXML via XPath (escape hatch) |
+~~`apply_xml_patch`~~ — **Not implemented.** Too fragile for LLM callers, too much maintenance burden. The JSON patch model is sufficient. If gaps are found, extend the JSON value types instead.
 
 ---
 
@@ -176,6 +191,7 @@ public record HeaderFooterSegment(HeaderFooterKind Kind) : PathSegment;
 public record BookmarkSegment(Selector Selector) : PathSegment;
 public record CommentSegment(Selector Selector) : PathSegment;
 public record FootnoteSegment(Selector Selector) : PathSegment;
+public record ChildrenSegment(int Index) : PathSegment;  // for positional insert
 ```
 
 ### Selectors
@@ -195,20 +211,22 @@ public record AllSelector : Selector;                           // [*]
 The `PathSchema` defines which segments can follow which. This is checked at parse time:
 
 ```
-BodySegment         → Paragraph, Heading, Table, Drawing, Section
+BodySegment         → Paragraph, Heading, Table, Drawing, Section, Children, Style, HeaderFooter, Bookmark
 TableSegment        → Row, Style
 RowSegment          → Cell
 CellSegment         → Paragraph, Table (nested)
-ParagraphSegment    → Run, Hyperlink, Drawing, Style
-HeadingSegment      → Run, Style
+ParagraphSegment    → Run, Hyperlink, Drawing, Style, Bookmark
+HeadingSegment      → Run, Style, Bookmark
 RunSegment          → Style, Drawing
+HyperlinkSegment    → Run
+HeaderFooterSegment → Paragraph, Table
 ```
 
 Invalid paths are rejected with a precise error message:
 
 ```
-"/body/cell[0]" → Error: CellSegment cannot be a direct child of BodySegment
-"/body/table[0]/paragraph[0]" → Error: ParagraphSegment cannot be a direct child of TableSegment
+"/body/cell[0]" → Error: Cell cannot be a direct child of Body
+"/body/table[0]/paragraph[0]" → Error: Paragraph cannot be a direct child of Table
 ```
 
 This is critical for the MCP use case where the caller is an LLM — precise errors enable self-correction.
@@ -298,6 +316,12 @@ The `value` field in `add` and `replace` is a typed JSON object:
 // Hyperlink
 { "type": "hyperlink", "text": "Click here", "url": "https://..." }
 
+// Page break
+{ "type": "page_break" }
+
+// List
+{ "type": "list", "items": ["a", "b", "c"], "ordered": false }
+
 // Style (for replace on /style segments)
 { "bold": true, "italic": false, "font_size": 14, "color": "FF0000" }
 ```
@@ -315,32 +339,11 @@ The `value` field in `add` and `replace` is a typed JSON object:
 
 ---
 
-## Part 5: XML Patch (Escape Hatch)
+## ~~Part 5: XML Patch (Escape Hatch)~~ — NOT IMPLEMENTED
 
-For advanced scenarios not covered by the JSON patch model, `apply_xml_patch` provides direct XPath-based access:
+~~For advanced scenarios not covered by the JSON patch model, `apply_xml_patch` provides direct XPath-based access.~~
 
-```json
-{
-  "tool": "apply_xml_patch",
-  "input": {
-    "doc_id": "abc-123",
-    "patches": [
-      {
-        "op": "replace",
-        "xpath": "//w:p[w:r/w:t='Introduction']/w:pPr/w:pStyle",
-        "xml": "<w:pStyle w:val=\"Heading1\" xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"/>"
-      },
-      {
-        "op": "insert_after",
-        "xpath": "//w:p[1]",
-        "xml": "<w:p xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:r><w:t>New paragraph</w:t></w:r></w:p>"
-      }
-    ]
-  }
-}
-```
-
-This tool operates on the raw `document.xml` (or any part) and is intentionally lower-level. It is the fallback for anything the JSON patch model does not support.
+**Decision: Not implemented.** XPath-based raw OOXML manipulation is too fragile for production use, especially when the caller is an LLM. The JSON patch model covers all common document authoring scenarios. If gaps are discovered, the correct approach is to extend `ElementFactory` with new value types rather than expose raw XML manipulation.
 
 ---
 
@@ -365,8 +368,7 @@ Query can return different formats:
 |--------|---------|
 | `json` | Structured JSON (tables as arrays, paragraphs as objects) |
 | `text` | Plain text extraction |
-| `xml` | Raw OOXML fragment |
-| `summary` | Metadata (element count, structure outline) |
+| `summary` | Element count and structure outline |
 
 Special query paths:
 
@@ -378,21 +380,19 @@ Special query paths:
 | `/body/heading[*]` | All headings (with levels) |
 | `/styles` | Document style definitions |
 | `/metadata` | Core properties (title, author, dates) |
-| `/fields` | Form fields |
 
 ---
 
 ## Part 7: Migration Path
 
-### Phase 1 — Bootstrap
+### Phase 1 — Bootstrap (Done)
 
-- Set up .NET 10 project with NativeAOT
-- Implement MCP stdio transport (JSON-RPC)
+- Set up .NET 10 project with NativeAOT and MCP C# SDK
 - Implement `DocxSession` (open/create/save/close)
-- Port `query` for basic document inspection (text, structure, metadata)
-- Publish NativeAOT binaries for macOS ARM64
+- Implement `SessionManager` (thread-safe session lifecycle)
+- Wire MCP server with stdio transport
 
-### Phase 2 — Typed Paths
+### Phase 2 — Typed Paths (Done)
 
 - Implement `DocxPath`, `PathSegment`, `Selector` types
 - Implement `PathParser` (string to typed model)
@@ -400,22 +400,28 @@ Special query paths:
 - Implement `PathResolver` (path to Open XML element)
 - Wire into `query` tool
 
-### Phase 3 — JSON Patches
+### Phase 3 — JSON Patches (Done)
 
-- Implement `PatchEngine` with add/replace/remove/move/copy
+- Implement `PatchTool` with add/replace/remove/move/copy
 - Implement `ElementFactory` (JSON value to Open XML element)
-- Support all value types (paragraph, heading, table, image, hyperlink, style)
-- Wire into `apply_patch` tool
+- Support all value types (paragraph, heading, table, image, hyperlink, style, list, page_break)
+- 43 tests passing
 
-### Phase 4 — XML Patch and Export
+### Phase 4 — Export (Done)
 
-- Implement `apply_xml_patch` with XPath resolution
-- Add export capabilities (PDF via LibreOffice/Aspose, HTML, Markdown)
+- PDF export via LibreOffice CLI
+- HTML export (native)
+- Markdown export (native)
 
-### Phase 5 — Parity and Deprecation
+### ~~Phase 4b — XML Patch~~ (Skipped)
 
-- Ensure feature parity with current Rust server
-- Deprecate Rust implementation
+- ~~Implement `apply_xml_patch` with XPath resolution~~
+- **Not implemented** — too fragile, unnecessary given the JSON patch model
+
+### Phase 5 — Parity and Deprecation (Done)
+
+- Rust implementation removed
+- All functionality migrated to .NET
 
 ---
 
@@ -424,7 +430,7 @@ Special query paths:
 | Risk | Mitigation |
 |------|------------|
 | NativeAOT trim warnings | Open XML SDK 3.x is AOT-compatible; test early |
-| PDF export | No native .NET solution; use LibreOffice CLI or Aspose |
-| Path model gaps | XML patch tool as escape hatch for unsupported patterns |
+| PDF export | No native .NET solution; use LibreOffice CLI |
+| Path model gaps | Extend JSON value types in `ElementFactory` |
 | LLM path errors | Precise error messages enable self-correction in MCP |
 | Binary size (~30-40 MB) | Acceptable for desktop MCP server |
