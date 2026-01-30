@@ -17,10 +17,8 @@ RUN dotnet publish src/DocxMcp/DocxMcp.csproj \
     -o /app
 
 # Runtime: minimal image with only the binary
+# The runtime-deps image already provides an 'app' user/group
 FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-preview AS runtime
-
-RUN groupadd --gid 1000 app && \
-    useradd --uid 1000 --gid app --shell /bin/false app
 
 WORKDIR /app
 COPY --from=build /app .
