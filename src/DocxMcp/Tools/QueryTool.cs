@@ -196,8 +196,86 @@ public sealed class QueryTool
         if (styleId is not null)
             result["style"] = styleId;
 
+        // Paragraph-level properties
+        if (p.ParagraphProperties is ParagraphProperties pp)
+        {
+            var propsObj = new JsonObject();
+            bool hasProperties = false;
+
+            if (pp.Justification?.Val is not null)
+            {
+                propsObj["alignment"] = pp.Justification.Val.InnerText;
+                hasProperties = true;
+            }
+
+            if (pp.SpacingBetweenLines is SpacingBetweenLines spacing)
+            {
+                if (spacing.Before?.Value is string sb)
+                {
+                    propsObj["spacing_before"] = int.TryParse(sb, out var v) ? v : 0;
+                    hasProperties = true;
+                }
+                if (spacing.After?.Value is string sa)
+                {
+                    propsObj["spacing_after"] = int.TryParse(sa, out var v) ? v : 0;
+                    hasProperties = true;
+                }
+                if (spacing.Line?.Value is string sl)
+                {
+                    propsObj["line_spacing"] = int.TryParse(sl, out var v) ? v : 0;
+                    hasProperties = true;
+                }
+            }
+
+            if (pp.Indentation is Indentation indent)
+            {
+                if (indent.Left?.Value is string il)
+                {
+                    propsObj["indent_left"] = int.TryParse(il, out var v) ? v : 0;
+                    hasProperties = true;
+                }
+                if (indent.Right?.Value is string ir)
+                {
+                    propsObj["indent_right"] = int.TryParse(ir, out var v) ? v : 0;
+                    hasProperties = true;
+                }
+                if (indent.FirstLine?.Value is string ifl)
+                {
+                    propsObj["indent_first_line"] = int.TryParse(ifl, out var v) ? v : 0;
+                    hasProperties = true;
+                }
+                if (indent.Hanging?.Value is string ih)
+                {
+                    propsObj["indent_hanging"] = int.TryParse(ih, out var v) ? v : 0;
+                    hasProperties = true;
+                }
+            }
+
+            if (pp.Tabs is Tabs tabs)
+            {
+                var tabsArr = new JsonArray();
+                foreach (var tab in tabs.Elements<TabStop>())
+                {
+                    var tabObj = new JsonObject();
+                    if (tab.Position?.Value is int pos)
+                        tabObj["position"] = pos;
+                    if (tab.Val is not null)
+                        tabObj["alignment"] = tab.Val.InnerText;
+                    if (tab.Leader is not null)
+                        tabObj["leader"] = tab.Leader.InnerText;
+                    tabsArr.Add((JsonNode)tabObj);
+                }
+                propsObj["tabs"] = tabsArr;
+                hasProperties = true;
+            }
+
+            if (hasProperties)
+                result["properties"] = propsObj;
+        }
+
+        // Always emit runs array for round-trip fidelity
         var runs = p.Elements<Run>().ToList();
-        if (runs.Count > 1)
+        if (runs.Count > 0)
         {
             var arr = new JsonArray();
             foreach (var r in runs)
@@ -219,7 +297,47 @@ public sealed class QueryTool
 
     private static JsonObject TableToJson(Table t)
     {
-        var (rows, cols) = t.GetTableDimensions();
+        var (rowCount, cols) = t.GetTableDimensions();
+
+        var result = new JsonObject
+        {
+            ["type"] = "table",
+            ["rows"] = rowCount,
+            ["cols"] = cols,
+        };
+
+        // Table properties
+        var tblProps = t.GetFirstChild<TableProperties>();
+        if (tblProps is not null)
+        {
+            var propsObj = new JsonObject();
+            bool hasProps = false;
+
+            if (tblProps.TableStyle?.Val?.Value is string style)
+            {
+                propsObj["table_style"] = style;
+                hasProps = true;
+            }
+
+            if (tblProps.TableWidth is TableWidth tw)
+            {
+                propsObj["width"] = tw.Width?.Value;
+                if (tw.Type is not null)
+                    propsObj["width_type"] = tw.Type.InnerText;
+                hasProps = true;
+            }
+
+            if (tblProps.TableJustification?.Val is not null)
+            {
+                propsObj["table_alignment"] = tblProps.TableJustification.Val.InnerText;
+                hasProps = true;
+            }
+
+            if (hasProps)
+                result["properties"] = propsObj;
+        }
+
+        // Data: simple text array for backwards compatibility
         var dataArr = new JsonArray();
         foreach (var row in t.Elements<TableRow>())
         {
@@ -228,41 +346,113 @@ public sealed class QueryTool
                 rowArr.Add((JsonNode?)JsonValue.Create(cell.InnerText));
             dataArr.Add((JsonNode)rowArr);
         }
+        result["data"] = dataArr;
 
-        return new JsonObject
-        {
-            ["type"] = "table",
-            ["rows"] = rows,
-            ["cols"] = cols,
-            ["data"] = dataArr,
-        };
+        // Rich row data with cell details
+        var richRows = new JsonArray();
+        foreach (var row in t.Elements<TableRow>())
+            richRows.Add((JsonNode)RowToJson(row));
+        result["rich_rows"] = richRows;
+
+        return result;
     }
 
     private static JsonObject RowToJson(TableRow tr)
     {
+        var result = new JsonObject { ["type"] = "row" };
+
+        // Simple cells for backwards compat
         var cellsArr = new JsonArray();
         foreach (var c in tr.Elements<TableCell>())
             cellsArr.Add((JsonNode?)JsonValue.Create(c.InnerText));
+        result["cells"] = cellsArr;
 
-        return new JsonObject
+        // Row properties
+        if (tr.TableRowProperties is TableRowProperties trp)
         {
-            ["type"] = "row",
-            ["cells"] = cellsArr,
-        };
+            var propsObj = new JsonObject();
+            bool hasProps = false;
+
+            if (trp.GetFirstChild<TableHeader>() is not null)
+            {
+                propsObj["is_header"] = true;
+                hasProps = true;
+            }
+
+            if (trp.GetFirstChild<TableRowHeight>() is TableRowHeight h)
+            {
+                propsObj["height"] = (int)(h.Val?.Value ?? 0);
+                hasProps = true;
+            }
+
+            if (hasProps)
+                result["properties"] = propsObj;
+        }
+
+        // Rich cells with full detail
+        var richCells = new JsonArray();
+        foreach (var c in tr.Elements<TableCell>())
+            richCells.Add((JsonNode)CellToJson(c));
+        result["rich_cells"] = richCells;
+
+        return result;
     }
 
     private static JsonObject CellToJson(TableCell tc)
     {
-        var parArr = new JsonArray();
-        foreach (var p in tc.Elements<Paragraph>())
-            parArr.Add((JsonNode)ParagraphToJson(p));
-
-        return new JsonObject
+        var result = new JsonObject
         {
             ["type"] = "cell",
             ["text"] = tc.InnerText,
-            ["paragraphs"] = parArr,
         };
+
+        // Cell properties
+        if (tc.TableCellProperties is TableCellProperties tcp)
+        {
+            var propsObj = new JsonObject();
+            bool hasProps = false;
+
+            if (tcp.TableCellWidth is TableCellWidth w)
+            {
+                propsObj["width"] = w.Width?.Value;
+                hasProps = true;
+            }
+
+            if (tcp.TableCellVerticalAlignment?.Val is not null)
+            {
+                propsObj["vertical_align"] = tcp.TableCellVerticalAlignment.Val.InnerText;
+                hasProps = true;
+            }
+
+            if (tcp.Shading is Shading sh)
+            {
+                propsObj["shading"] = sh.Fill?.Value;
+                hasProps = true;
+            }
+
+            if (tcp.GridSpan?.Val?.Value is int gs)
+            {
+                propsObj["col_span"] = gs;
+                hasProps = true;
+            }
+
+            if (tcp.VerticalMerge is VerticalMerge vm)
+            {
+                propsObj["row_span"] = vm.Val?.Value == MergedCellValues.Restart ? "restart" : "continue";
+                hasProps = true;
+            }
+
+            if (hasProps)
+                result["properties"] = propsObj;
+        }
+
+        // Paragraphs (full detail)
+        var parArr = new JsonArray();
+        foreach (var p in tc.Elements<Paragraph>())
+            parArr.Add((JsonNode)ParagraphToJson(p));
+        result["paragraphs"] = parArr;
+
+        return result;
     }
 
     private static JsonObject RunToJson(Run r)
@@ -270,8 +460,31 @@ public sealed class QueryTool
         var result = new JsonObject
         {
             ["type"] = "run",
-            ["text"] = r.InnerText,
         };
+
+        // Detect tab characters
+        if (r.GetFirstChild<TabChar>() is not null)
+        {
+            result["tab"] = true;
+            result["text"] = "\t";
+        }
+        else if (r.GetFirstChild<Break>() is Break brk)
+        {
+            var breakType = brk.Type?.Value;
+            string breakName;
+            if (breakType is not null && breakType == BreakValues.Page)
+                breakName = "page";
+            else if (breakType is not null && breakType == BreakValues.Column)
+                breakName = "column";
+            else
+                breakName = "line";
+            result["break"] = breakName;
+            result["text"] = "";
+        }
+        else
+        {
+            result["text"] = r.InnerText;
+        }
 
         if (r.RunProperties is not null)
             result["style"] = RunPropsToJson(r.RunProperties);
@@ -295,8 +508,8 @@ public sealed class QueryTool
 
         if (pp.ParagraphStyleId?.Val?.Value is string styleId)
             result["style_id"] = styleId;
-        if (pp.Justification?.Val?.Value is JustificationValues j)
-            result["alignment"] = j.ToString().ToLowerInvariant();
+        if (pp.Justification?.Val is not null)
+            result["alignment"] = pp.Justification.Val.InnerText;
 
         return result;
     }
