@@ -53,6 +53,22 @@ docker pull valdo404/docx-mcp
 
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
+Using Docker (recommended):
+```json
+{
+  "mcpServers": {
+    "docx": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm",
+        "-v", "/Users/you/Documents:/data",
+        "-v", "docx-sessions:/home/app/.docx-mcp/sessions",
+        "valdo404/docx-mcp"]
+    }
+  }
+}
+```
+
+Using native binary:
 ```json
 {
   "mcpServers": {
@@ -66,6 +82,24 @@ docker pull valdo404/docx-mcp
 
 ### Cursor
 
+Using Docker:
+```json
+{
+  "mcp": {
+    "servers": {
+      "docx": {
+        "command": "docker",
+        "args": ["run", "-i", "--rm",
+          "-v", "/Users/you/Documents:/data",
+          "-v", "docx-sessions:/home/app/.docx-mcp/sessions",
+          "valdo404/docx-mcp"]
+      }
+    }
+  }
+}
+```
+
+Using native binary:
 ```json
 {
   "mcp": {
