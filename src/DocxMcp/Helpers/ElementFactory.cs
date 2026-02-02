@@ -257,6 +257,7 @@ public static class ElementFactory
             run.AppendChild(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
         }
 
+        ElementIdManager.AssignId(run);
         return run;
     }
 
@@ -286,6 +287,7 @@ public static class ElementFactory
             }
 
             run.AppendChild(new Text(text.GetString() ?? "") { Space = SpaceProcessingModeValues.Preserve });
+            ElementIdManager.AssignId(run);
             paragraph.AppendChild(run);
         }
     }
@@ -307,6 +309,7 @@ public static class ElementFactory
 
         PopulateRuns(paragraph, value);
 
+        ElementIdManager.AssignId(paragraph);
         return paragraph;
     }
 
@@ -342,6 +345,7 @@ public static class ElementFactory
 
         PopulateRuns(paragraph, value);
 
+        ElementIdManager.AssignId(paragraph);
         return paragraph;
     }
 
@@ -394,6 +398,7 @@ public static class ElementFactory
             }
         }
 
+        ElementIdManager.AssignId(table);
         return table;
     }
 
@@ -498,12 +503,16 @@ public static class ElementFactory
                     r.RunProperties = new RunProperties { Bold = new Bold() };
                 r.AppendChild(new Text(cell.GetString() ?? cell.ToString())
                     { Space = SpaceProcessingModeValues.Preserve });
+                ElementIdManager.AssignId(r);
                 p.AppendChild(r);
+                ElementIdManager.AssignId(p);
                 tc.AppendChild(p);
+                ElementIdManager.AssignId(tc);
                 tableRow.AppendChild(tc);
             }
         }
 
+        ElementIdManager.AssignId(tableRow);
         return tableRow;
     }
 
@@ -552,13 +561,17 @@ public static class ElementFactory
                     var r = new Run();
                     r.AppendChild(new Text(cell.GetString() ?? cell.ToString())
                         { Space = SpaceProcessingModeValues.Preserve });
+                    ElementIdManager.AssignId(r);
                     p.AppendChild(r);
+                    ElementIdManager.AssignId(p);
                     tc.AppendChild(p);
+                    ElementIdManager.AssignId(tc);
                     tableRow.AppendChild(tc);
                 }
             }
         }
 
+        ElementIdManager.AssignId(tableRow);
         return tableRow;
     }
 
@@ -685,6 +698,7 @@ public static class ElementFactory
             tc.AppendChild(p);
         }
 
+        ElementIdManager.AssignId(tc);
         return tc;
     }
 
@@ -794,7 +808,9 @@ public static class ElementFactory
         var run = new Run();
         var drawing = new Drawing(drawingXml);
         run.AppendChild(drawing);
+        ElementIdManager.AssignId(run);
         paragraph.AppendChild(run);
+        ElementIdManager.AssignId(paragraph);
 
         return paragraph;
     }
@@ -809,28 +825,33 @@ public static class ElementFactory
         var rel = mainPart.AddHyperlinkRelationship(new Uri(url), true);
 
         var paragraph = new Paragraph();
-        var hyperlink = new Hyperlink(
-            new Run(
+        var hyperlinkRun = new Run(
                 new RunProperties(
                     new RunStyle { Val = "Hyperlink" },
                     new Color { Val = "0563C1" },
                     new Underline { Val = UnderlineValues.Single }
                 ),
                 new Text(text) { Space = SpaceProcessingModeValues.Preserve }
-            ))
+            );
+        ElementIdManager.AssignId(hyperlinkRun);
+        var hyperlink = new Hyperlink(hyperlinkRun)
         {
             Id = rel.Id
         };
+        ElementIdManager.AssignId(hyperlink);
         paragraph.AppendChild(hyperlink);
+        ElementIdManager.AssignId(paragraph);
 
         return paragraph;
     }
 
     private static Paragraph CreatePageBreak()
     {
-        return new Paragraph(
-            new Run(
-                new Break { Type = BreakValues.Page }));
+        var run = new Run(new Break { Type = BreakValues.Page });
+        ElementIdManager.AssignId(run);
+        var paragraph = new Paragraph(run);
+        ElementIdManager.AssignId(paragraph);
+        return paragraph;
     }
 
     private static Paragraph CreateSectionBreak(JsonElement value)
@@ -848,10 +869,12 @@ public static class ElementFactory
             _ => SectionMarkValues.NextPage
         };
 
-        return new Paragraph(
+        var paragraph = new Paragraph(
             new ParagraphProperties(
                 new SectionProperties(
                     new SectionType { Val = sectionType })));
+        ElementIdManager.AssignId(paragraph);
+        return paragraph;
     }
 
     private static OpenXmlElement CreateList(JsonElement value)
@@ -878,7 +901,9 @@ public static class ElementFactory
         var text = items[0].GetString() ?? "";
         var run = new Run();
         run.AppendChild(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
+        ElementIdManager.AssignId(run);
         paragraph.AppendChild(run);
+        ElementIdManager.AssignId(paragraph);
 
         return paragraph;
     }
@@ -904,7 +929,9 @@ public static class ElementFactory
             var text = item.GetString() ?? item.ToString();
             var run = new Run();
             run.AppendChild(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
+            ElementIdManager.AssignId(run);
             paragraph.AppendChild(run);
+            ElementIdManager.AssignId(paragraph);
 
             result.Add(paragraph);
         }

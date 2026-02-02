@@ -24,6 +24,7 @@ public sealed class StyleTools
         "  vertical_align — superscript, subscript, baseline\n\n" +
         "Omit path to style ALL runs in the document (including inside tables).\n" +
         "With path, styles all runs within the resolved element(s).\n" +
+        "Use [id='...'] for stable targeting (e.g. /body/paragraph[id='1A2B3C4D']/run[id='5E6F7A8B']).\n" +
         "Use [*] wildcards for batch operations (e.g. /body/paragraph[*]).")]
     public static string StyleElement(
         SessionManager sessions,
@@ -107,6 +108,7 @@ public sealed class StyleTools
         "  shading — hex color string for background (e.g. \"FFFF00\")\n\n" +
         "Compound properties (spacing, indentation) merge sub-fields independently.\n" +
         "Omit path to style ALL paragraphs in the document (including inside tables).\n" +
+        "Use [id='...'] for stable targeting (e.g. /body/paragraph[id='1A2B3C4D']).\n" +
         "Use [*] wildcards for batch operations.")]
     public static string StyleParagraph(
         SessionManager sessions,
@@ -192,7 +194,8 @@ public sealed class StyleTools
         "Row style (applied to ALL rows in matched tables):\n" +
         "  height — integer, is_header — true/false\n\n" +
         "At least one of style, cell_style, or row_style must be provided.\n" +
-        "Omit path to style ALL tables in the document.")]
+        "Omit path to style ALL tables in the document.\n" +
+        "Use [id='...'] for stable targeting (e.g. /body/table[id='1A2B3C4D']).")]
     public static string StyleTable(
         SessionManager sessions,
         [Description("Session ID of the document.")] string doc_id,

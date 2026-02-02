@@ -21,7 +21,7 @@ public sealed class CommentTools
         "Multi-paragraph comments: use \\n in text for multiple paragraphs.\n\n" +
         "Examples:\n" +
         "  comment_add(doc_id, \"/body/paragraph[0]\", \"Needs revision\")\n" +
-        "  comment_add(doc_id, \"/body/paragraph[1]\", \"Fix this phrase\", anchor_text=\"specific words\")")]
+        "  comment_add(doc_id, \"/body/paragraph[id='1A2B3C4D']\", \"Fix this phrase\", anchor_text=\"specific words\")")]
     public static string CommentAdd(
         SessionManager sessions,
         [Description("Session ID of the document.")] string doc_id,

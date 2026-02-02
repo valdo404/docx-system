@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocxMcp.Helpers;
 
 namespace DocxMcp;
 
@@ -36,6 +37,8 @@ public sealed class DocxSession : IDisposable
         stream.Write(bytes);
         stream.Position = 0;
         var doc = WordprocessingDocument.Open(stream, isEditable: true);
+        ElementIdManager.EnsureNamespace(doc);
+        ElementIdManager.EnsureAllIds(doc);
         return new DocxSession(Guid.NewGuid().ToString("N")[..12], doc, stream, path);
     }
 
@@ -48,6 +51,8 @@ public sealed class DocxSession : IDisposable
         stream.Write(bytes);
         stream.Position = 0;
         var doc = WordprocessingDocument.Open(stream, isEditable: true);
+        ElementIdManager.EnsureNamespace(doc);
+        ElementIdManager.EnsureAllIds(doc);
         return new DocxSession(id, doc, stream, sourcePath);
     }
 
@@ -64,6 +69,8 @@ public sealed class DocxSession : IDisposable
         mainPart.Document = new Document(new Body());
         doc.Save();
 
+        ElementIdManager.EnsureNamespace(doc);
+        ElementIdManager.EnsureAllIds(doc);
         return new DocxSession(Guid.NewGuid().ToString("N")[..12], doc, stream, sourcePath: null);
     }
 

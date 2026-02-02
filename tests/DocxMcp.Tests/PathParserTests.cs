@@ -113,6 +113,32 @@ public class PathParserTests
     }
 
     [Fact]
+    public void ParseIdSelector()
+    {
+        var path = DocxPath.Parse("/body/paragraph[id='1A2B3C4D']");
+        var p = Assert.IsType<ParagraphSegment>(path.Segments[1]);
+        var sel = Assert.IsType<IdSelector>(p.Selector);
+        Assert.Equal("1A2B3C4D", sel.Id);
+    }
+
+    [Fact]
+    public void ParseIdSelectorLowercase()
+    {
+        var path = DocxPath.Parse("/body/table[id='abcdef01']");
+        var t = Assert.IsType<TableSegment>(path.Segments[1]);
+        var sel = Assert.IsType<IdSelector>(t.Selector);
+        Assert.Equal("ABCDEF01", sel.Id); // Normalized to uppercase
+    }
+
+    [Fact]
+    public void ParseIdSelectorOnRow()
+    {
+        var path = DocxPath.Parse("/body/table[0]/row[id='AABB1122']");
+        var r = Assert.IsType<RowSegment>(path.Segments[2]);
+        Assert.IsType<IdSelector>(r.Selector);
+    }
+
+    [Fact]
     public void RejectInvalidHierarchy()
     {
         // Cell cannot be direct child of body

@@ -8,6 +8,7 @@ using DocumentFormat.OpenXml.Wordprocessing;
 using ModelContextProtocol.Server;
 using DocxMcp.Helpers;
 using DocxMcp.Paths;
+using static DocxMcp.Helpers.ElementIdManager;
 
 namespace DocxMcp.Tools;
 
@@ -29,8 +30,10 @@ public sealed class QueryTool
         "  /body/paragraph[*] — all paragraphs (paginated, max 50)\n" +
         "  /body/heading[*] — all headings (paginated, max 50)\n" +
         "  /body/paragraph[text~='hello'] — paragraphs containing 'hello'\n" +
+        "  /body/paragraph[id='1A2B3C4D'] — element by stable ID\n" +
         "  /metadata — document properties\n" +
-        "  /styles — style definitions")]
+        "  /styles — style definitions\n\n" +
+        "Every element has a stable 'id' field in JSON output. Use [id='...'] selectors for precise targeting.")]
     public static string Query(
         SessionManager sessions,
         [Description("Session ID of the document.")] string doc_id,
@@ -148,11 +151,13 @@ public sealed class QueryTool
         var headingsArr = new JsonArray();
         foreach (var h in headings)
         {
-            headingsArr.Add((JsonNode)new JsonObject
-            {
-                ["level"] = h.GetHeadingLevel(),
-                ["text"] = h.InnerText,
-            });
+            var hObj = new JsonObject();
+            var hId = GetId(h);
+            if (hId is not null)
+                hObj["id"] = hId;
+            hObj["level"] = h.GetHeadingLevel();
+            hObj["text"] = h.InnerText;
+            headingsArr.Add((JsonNode)hObj);
         }
 
         var structureArr = new JsonArray();
@@ -198,7 +203,15 @@ public sealed class QueryTool
 
     private static string FormatText(List<OpenXmlElement> elements)
     {
-        return string.Join("\n", elements.Select(e => e.InnerText));
+        var sb = new StringBuilder();
+        foreach (var e in elements)
+        {
+            var id = GetId(e);
+            if (id is not null)
+                sb.Append($"[{id}] ");
+            sb.AppendLine(e.InnerText);
+        }
+        return sb.ToString();
     }
 
     private static string FormatSummary(List<OpenXmlElement> elements)
@@ -224,16 +237,16 @@ public sealed class QueryTool
         Hyperlink h => HyperlinkToJson(h),
         ParagraphProperties pp => ParagraphPropsToJson(pp),
         RunProperties rp => RunPropsToJson(rp),
-        _ => new JsonObject
-        {
-            ["type"] = element.GetType().Name,
-            ["text"] = element.InnerText,
-        }
+        _ => GenericElementToJson(element)
     };
 
     private static JsonObject ParagraphToJson(Paragraph p, WordprocessingDocument? doc = null)
     {
         var result = new JsonObject { ["type"] = "paragraph" };
+
+        var paraId = GetId(p);
+        if (paraId is not null)
+            result["id"] = paraId;
 
         if (p.IsHeading())
         {
@@ -397,9 +410,14 @@ public sealed class QueryTool
         var result = new JsonObject
         {
             ["type"] = "table",
-            ["rows"] = rowCount,
-            ["cols"] = cols,
         };
+
+        var tableId = GetId(t);
+        if (tableId is not null)
+            result["id"] = tableId;
+
+        result["rows"] = rowCount;
+        result["cols"] = cols;
 
         // Table properties
         var tblProps = t.GetFirstChild<TableProperties>();
@@ -456,6 +474,10 @@ public sealed class QueryTool
     {
         var result = new JsonObject { ["type"] = "row" };
 
+        var rowId = GetId(tr);
+        if (rowId is not null)
+            result["id"] = rowId;
+
         // Simple cells for backwards compat
         var cellsArr = new JsonArray();
         foreach (var c in tr.Elements<TableCell>())
@@ -498,8 +520,13 @@ public sealed class QueryTool
         var result = new JsonObject
         {
             ["type"] = "cell",
-            ["text"] = tc.InnerText,
         };
+
+        var cellId = GetId(tc);
+        if (cellId is not null)
+            result["id"] = cellId;
+
+        result["text"] = tc.InnerText;
 
         // Cell properties
         if (tc.TableCellProperties is TableCellProperties tcp)
@@ -557,6 +584,10 @@ public sealed class QueryTool
             ["type"] = "run",
         };
 
+        var runId = GetId(r);
+        if (runId is not null)
+            result["id"] = runId;
+
         // Detect tab characters
         if (r.GetFirstChild<TabChar>() is not null)
         {
@@ -589,12 +620,18 @@ public sealed class QueryTool
 
     private static JsonObject HyperlinkToJson(Hyperlink h)
     {
-        return new JsonObject
+        var result = new JsonObject
         {
             ["type"] = "hyperlink",
-            ["text"] = h.InnerText,
-            ["id"] = h.Id?.Value ?? "",
         };
+
+        var hlId = GetId(h);
+        if (hlId is not null)
+            result["id"] = hlId;
+
+        result["text"] = h.InnerText;
+        result["rel_id"] = h.Id?.Value ?? "";
+        return result;
     }
 
     private static JsonObject ParagraphPropsToJson(ParagraphProperties pp)
@@ -624,18 +661,39 @@ public sealed class QueryTool
         return result;
     }
 
-    private static string? DescribeElement(OpenXmlElement element) => element switch
+    private static JsonObject GenericElementToJson(OpenXmlElement element)
     {
-        Paragraph p when p.IsHeading() =>
-            $"heading{p.GetHeadingLevel()}: \"{Truncate(p.InnerText, 60)}\"",
-        Paragraph p =>
-            $"paragraph: \"{Truncate(p.InnerText, 60)}\"",
-        Table t =>
-            $"table: {t.GetTableDimensions().Rows}x{t.GetTableDimensions().Cols}",
-        SectionProperties =>
-            "section_break",
-        _ => null
-    };
+        var result = new JsonObject
+        {
+            ["type"] = element.GetType().Name,
+        };
+
+        var elemId = GetId(element);
+        if (elemId is not null)
+            result["id"] = elemId;
+
+        result["text"] = element.InnerText;
+        return result;
+    }
+
+    private static string? DescribeElement(OpenXmlElement element)
+    {
+        var id = GetId(element);
+        var prefix = id is not null ? $"[{id}] " : "";
+
+        return element switch
+        {
+            Paragraph p when p.IsHeading() =>
+                $"{prefix}heading{p.GetHeadingLevel()}: \"{Truncate(p.InnerText, 60)}\"",
+            Paragraph p =>
+                $"{prefix}paragraph: \"{Truncate(p.InnerText, 60)}\"",
+            Table t =>
+                $"{prefix}table: {t.GetTableDimensions().Rows}x{t.GetTableDimensions().Cols}",
+            SectionProperties =>
+                "section_break",
+            _ => null
+        };
+    }
 
     private static string Truncate(string s, int maxLen) =>
         s.Length <= maxLen ? s : s[..maxLen] + "...";

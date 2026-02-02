@@ -19,6 +19,10 @@ public static partial class PathParser
     [GeneratedRegex(@"^style='(?<val>.*)'$")]
     private static partial Regex StyleSelectorPattern();
 
+    // Matches: id='HexValue' (1-8 hex chars)
+    [GeneratedRegex(@"^id='(?<val>[0-9A-Fa-f]{1,8})'$")]
+    private static partial Regex IdSelectorPattern();
+
     // Matches: level=N
     [GeneratedRegex(@"^level=(?<val>\d+)$")]
     private static partial Regex LevelPattern();
@@ -194,6 +198,11 @@ public static partial class PathParser
         // Integer index
         if (int.TryParse(selStr, out var index))
             return new IndexSelector(index);
+
+        // id='...'
+        var idMatch = IdSelectorPattern().Match(selStr);
+        if (idMatch.Success)
+            return new IdSelector(idMatch.Groups["val"].Value.ToUpperInvariant());
 
         // text~='...' or text='...'
         var textMatch = TextSelectorPattern().Match(selStr);

@@ -177,7 +177,15 @@ public sealed class ReadSectionTool
 
     private static string FormatText(List<OpenXmlElement> elements)
     {
-        return string.Join("\n", elements.Select(e => e.InnerText));
+        var sb = new System.Text.StringBuilder();
+        foreach (var e in elements)
+        {
+            var id = ElementIdManager.GetId(e);
+            if (id is not null)
+                sb.Append($"[{id}] ");
+            sb.AppendLine(e.InnerText);
+        }
+        return sb.ToString();
     }
 
     private static string FormatSummary(List<OpenXmlElement> elements)
@@ -192,18 +200,24 @@ public sealed class ReadSectionTool
         return string.Join("\n", lines);
     }
 
-    private static string? DescribeElement(OpenXmlElement element) => element switch
+    private static string? DescribeElement(OpenXmlElement element)
     {
-        Paragraph p when p.IsHeading() =>
-            $"heading{p.GetHeadingLevel()}: \"{Truncate(p.InnerText, 60)}\"",
-        Paragraph p =>
-            $"paragraph: \"{Truncate(p.InnerText, 60)}\"",
-        Table t =>
-            $"table: {t.GetTableDimensions().Rows}x{t.GetTableDimensions().Cols}",
-        SectionProperties =>
-            "section_break",
-        _ => null
-    };
+        var id = ElementIdManager.GetId(element);
+        var prefix = id is not null ? $"[{id}] " : "";
+
+        return element switch
+        {
+            Paragraph p when p.IsHeading() =>
+                $"{prefix}heading{p.GetHeadingLevel()}: \"{Truncate(p.InnerText, 60)}\"",
+            Paragraph p =>
+                $"{prefix}paragraph: \"{Truncate(p.InnerText, 60)}\"",
+            Table t =>
+                $"{prefix}table: {t.GetTableDimensions().Rows}x{t.GetTableDimensions().Cols}",
+            SectionProperties =>
+                "section_break",
+            _ => null
+        };
+    }
 
     private static string Truncate(string s, int maxLen) =>
         s.Length <= maxLen ? s : s[..maxLen] + "...";

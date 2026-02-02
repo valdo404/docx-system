@@ -23,6 +23,9 @@ public sealed class PatchTool
         "  copy — Duplicate element to another location.\n" +
         "  replace_text — Find/replace text preserving run-level formatting.\n" +
         "  remove_column — Remove a column from a table by index.\n\n" +
+        "Paths support stable element IDs (preferred over indices for existing content):\n" +
+        "  /body/paragraph[id='1A2B3C4D'] — target paragraph by ID\n" +
+        "  /body/table[id='5E6F7A8B']/row[id='AABB1122'] — target row by ID\n\n" +
         "Value types (for add/replace):\n" +
         "  Paragraph with runs (preserves styling):\n" +
         "    {\"type\": \"paragraph\", \"runs\": [{\"text\": \"bold\", \"style\": {\"bold\": true}}, {\"tab\": true}, {\"text\": \"normal\"}]}\n" +

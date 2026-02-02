@@ -19,3 +19,6 @@ public record StyleSelector(string StyleName) : Selector;
 
 /// <summary>Select all elements of this type (wildcard).</summary>
 public record AllSelector : Selector;
+
+/// <summary>Select element by its unique ID (dmcp:id or w14:paraId).</summary>
+public record IdSelector(string Id) : Selector;

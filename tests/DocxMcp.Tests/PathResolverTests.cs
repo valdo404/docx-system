@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocxMcp.Helpers;
 using DocxMcp.Paths;
 using Xunit;
 
@@ -112,6 +113,40 @@ public class PathResolverTests : IDisposable
         var (parent, index) = PathResolver.ResolveForInsert(path, _doc);
         Assert.IsType<Body>(parent);
         Assert.Equal(0, index);
+    }
+
+    [Fact]
+    public void ResolveParagraphById()
+    {
+        ElementIdManager.EnsureNamespace(_doc);
+        ElementIdManager.EnsureAllIds(_doc);
+
+        var body = _doc.MainDocumentPart!.Document!.Body!;
+        var para = body.Elements<Paragraph>().Skip(1).First(); // "First paragraph"
+        var id = ElementIdManager.GetId(para)!;
+
+        var path = DocxPath.Parse($"/body/paragraph[id='{id}']");
+        var results = PathResolver.Resolve(path, _doc);
+
+        Assert.Single(results);
+        Assert.Equal("First paragraph", results[0].InnerText);
+    }
+
+    [Fact]
+    public void ResolveTableById()
+    {
+        ElementIdManager.EnsureNamespace(_doc);
+        ElementIdManager.EnsureAllIds(_doc);
+
+        var body = _doc.MainDocumentPart!.Document!.Body!;
+        var table = body.Elements<Table>().First();
+        var id = ElementIdManager.GetId(table)!;
+
+        var path = DocxPath.Parse($"/body/table[id='{id}']");
+        var results = PathResolver.Resolve(path, _doc);
+
+        Assert.Single(results);
+        Assert.IsType<Table>(results[0]);
     }
 
     [Fact]

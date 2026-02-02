@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using DocxMcp.Helpers;
 
 namespace DocxMcp.Paths;
 
@@ -224,6 +225,11 @@ public static class PathResolver
 
             StyleSelector ss => elements
                 .Where(e => MatchesStyle(e, ss.StyleName))
+                .Cast<OpenXmlElement>()
+                .ToList(),
+
+            IdSelector id => elements
+                .Where(e => ElementIdManager.GetId(e)?.Equals(id.Id, StringComparison.OrdinalIgnoreCase) == true)
                 .Cast<OpenXmlElement>()
                 .ToList(),
 

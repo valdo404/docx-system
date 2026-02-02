@@ -108,11 +108,13 @@ public sealed class ReadHeadingContentTool
 
     private static JsonObject BuildHeadingInfo(Paragraph heading)
     {
-        return new JsonObject
-        {
-            ["heading_level"] = heading.GetHeadingLevel(),
-            ["heading_text"] = heading.InnerText,
-        };
+        var obj = new JsonObject();
+        var id = ElementIdManager.GetId(heading);
+        if (id is not null)
+            obj["id"] = id;
+        obj["heading_level"] = heading.GetHeadingLevel();
+        obj["heading_text"] = heading.InnerText;
+        return obj;
     }
 
     internal static Paragraph? FindHeading(
@@ -222,13 +224,14 @@ public sealed class ReadHeadingContentTool
         var arr = new JsonArray();
         foreach (var (paragraph, index, contentCount, subHeadings) in headings)
         {
-            var obj = new JsonObject
-            {
-                ["index"] = index,
-                ["level"] = paragraph.GetHeadingLevel(),
-                ["text"] = paragraph.InnerText,
-                ["content_elements"] = contentCount,
-            };
+            var obj = new JsonObject();
+            var hId = ElementIdManager.GetId(paragraph);
+            if (hId is not null)
+                obj["id"] = hId;
+            obj["index"] = index;
+            obj["level"] = paragraph.GetHeadingLevel();
+            obj["text"] = paragraph.InnerText;
+            obj["content_elements"] = contentCount;
 
             if (subHeadings.Count > 0)
             {
@@ -257,7 +260,15 @@ public sealed class ReadHeadingContentTool
 
     private static string FormatText(List<OpenXmlElement> elements)
     {
-        return string.Join("\n", elements.Select(e => e.InnerText));
+        var sb = new System.Text.StringBuilder();
+        foreach (var e in elements)
+        {
+            var id = ElementIdManager.GetId(e);
+            if (id is not null)
+                sb.Append($"[{id}] ");
+            sb.AppendLine(e.InnerText);
+        }
+        return sb.ToString();
     }
 
     private static string FormatSummary(List<OpenXmlElement> elements)
@@ -272,16 +283,22 @@ public sealed class ReadHeadingContentTool
         return string.Join("\n", lines);
     }
 
-    private static string? DescribeElement(OpenXmlElement element) => element switch
+    private static string? DescribeElement(OpenXmlElement element)
     {
-        Paragraph p when p.IsHeading() =>
-            $"heading{p.GetHeadingLevel()}: \"{Truncate(p.InnerText, 60)}\"",
-        Paragraph p =>
-            $"paragraph: \"{Truncate(p.InnerText, 60)}\"",
-        Table t =>
-            $"table: {t.GetTableDimensions().Rows}x{t.GetTableDimensions().Cols}",
-        _ => null
-    };
+        var id = ElementIdManager.GetId(element);
+        var prefix = id is not null ? $"[{id}] " : "";
+
+        return element switch
+        {
+            Paragraph p when p.IsHeading() =>
+                $"{prefix}heading{p.GetHeadingLevel()}: \"{Truncate(p.InnerText, 60)}\"",
+            Paragraph p =>
+                $"{prefix}paragraph: \"{Truncate(p.InnerText, 60)}\"",
+            Table t =>
+                $"{prefix}table: {t.GetTableDimensions().Rows}x{t.GetTableDimensions().Cols}",
+            _ => null
+        };
+    }
 
     private static string Truncate(string s, int maxLen) =>
         s.Length <= maxLen ? s : s[..maxLen] + "...";
