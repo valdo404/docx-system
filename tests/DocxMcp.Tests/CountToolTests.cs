@@ -13,7 +13,7 @@ public class CountToolTests : IDisposable
 
     public CountToolTests()
     {
-        _sessions = new SessionManager();
+        _sessions = TestHelpers.CreateSessionManager();
         _session = _sessions.Create();
 
         var body = _session.GetBody();

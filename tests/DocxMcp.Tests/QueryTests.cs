@@ -13,7 +13,7 @@ public class QueryTests : IDisposable
 
     public QueryTests()
     {
-        _sessions = new SessionManager();
+        _sessions = TestHelpers.CreateSessionManager();
         _session = _sessions.Create();
 
         var body = _session.GetBody();

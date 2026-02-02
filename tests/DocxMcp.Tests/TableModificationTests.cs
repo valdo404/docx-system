@@ -16,7 +16,7 @@ public class TableModificationTests : IDisposable
 
     public TableModificationTests()
     {
-        _sessions = new SessionManager();
+        _sessions = TestHelpers.CreateSessionManager();
         _session = _sessions.Create();
 
         var body = _session.GetBody();

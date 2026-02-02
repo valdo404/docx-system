@@ -1,0 +1,29 @@
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace DocxMcp;
+
+/// <summary>
+/// Restores persisted sessions on server startup by loading baselines and replaying WALs.
+/// </summary>
+public sealed class SessionRestoreService : IHostedService
+{
+    private readonly SessionManager _sessions;
+    private readonly ILogger<SessionRestoreService> _logger;
+
+    public SessionRestoreService(SessionManager sessions, ILogger<SessionRestoreService> logger)
+    {
+        _sessions = sessions;
+        _logger = logger;
+    }
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        var restored = _sessions.RestoreSessions();
+        if (restored > 0)
+            _logger.LogInformation("Restored {Count} session(s) from disk.", restored);
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}

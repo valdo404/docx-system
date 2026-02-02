@@ -40,6 +40,18 @@ public sealed class DocxSession : IDisposable
     }
 
     /// <summary>
+    /// Restore a session from persisted bytes, reusing the original session ID and source path.
+    /// </summary>
+    public static DocxSession FromBytes(byte[] bytes, string id, string? sourcePath)
+    {
+        var stream = new MemoryStream();
+        stream.Write(bytes);
+        stream.Position = 0;
+        var doc = WordprocessingDocument.Open(stream, isEditable: true);
+        return new DocxSession(id, doc, stream, sourcePath);
+    }
+
+    /// <summary>
     /// Create a new empty document in memory.
     /// </summary>
     public static DocxSession Create()

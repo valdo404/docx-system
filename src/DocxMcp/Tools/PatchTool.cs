@@ -73,6 +73,7 @@ public sealed class PatchTool
             return $"Error: Too many operations ({patchCount}). Maximum is 10 per call. Split into multiple calls.";
 
         var results = new List<string>();
+        var succeededPatches = new List<string>();
         int applied = 0;
 
         foreach (var patch in patchArray.EnumerateArray())
@@ -110,6 +111,7 @@ public sealed class PatchTool
                         continue;
                 }
 
+                succeededPatches.Add(patch.GetRawText());
                 applied++;
             }
             catch (Exception ex)
@@ -119,12 +121,31 @@ public sealed class PatchTool
             }
         }
 
+        // Append only successful patches to WAL for replay fidelity
+        if (succeededPatches.Count > 0)
+        {
+            try
+            {
+                var walPatches = $"[{string.Join(",", succeededPatches)}]";
+                sessions.AppendWal(doc_id, walPatches);
+            }
+            catch { /* persistence is best-effort */ }
+        }
+
         if (results.Count > 0)
             return $"Applied {applied}/{patchArray.GetArrayLength()} patches.\n" +
                    string.Join("\n", results);
 
         return $"Applied {applied} patch(es) successfully.";
     }
+
+    internal static void ReplayAdd(JsonElement patch, WordprocessingDocument wpDoc, MainDocumentPart mainPart) => ApplyAdd(patch, wpDoc, mainPart);
+    internal static void ReplayReplace(JsonElement patch, WordprocessingDocument wpDoc, MainDocumentPart mainPart) => ApplyReplace(patch, wpDoc, mainPart);
+    internal static void ReplayRemove(JsonElement patch, WordprocessingDocument wpDoc) => ApplyRemove(patch, wpDoc);
+    internal static void ReplayMove(JsonElement patch, WordprocessingDocument wpDoc) => ApplyMove(patch, wpDoc);
+    internal static void ReplayCopy(JsonElement patch, WordprocessingDocument wpDoc) => ApplyCopy(patch, wpDoc);
+    internal static void ReplayReplaceText(JsonElement patch, WordprocessingDocument wpDoc) => ApplyReplaceText(patch, wpDoc);
+    internal static void ReplayRemoveColumn(JsonElement patch, WordprocessingDocument wpDoc) => ApplyRemoveColumn(patch, wpDoc);
 
     private static void ApplyAdd(JsonElement patch, WordprocessingDocument wpDoc, MainDocumentPart mainPart)
     {

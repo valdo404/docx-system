@@ -66,4 +66,20 @@ public sealed class DocumentTools
             $"  {s.Id}: {s.Path ?? "(new document)"}");
         return $"Open documents:\n{string.Join('\n', lines)}";
     }
+
+    [McpServerTool(Name = "document_snapshot"), Description(
+        "Create a snapshot of the document's current state. " +
+        "This compacts the write-ahead log by writing a new baseline and clearing pending changes. " +
+        "Useful before long-running operations or to ensure durability. " +
+        "WARNING: If there are redo entries (after undo), this will fail unless discard_redo is true.")]
+    public static string DocumentSnapshot(
+        SessionManager sessions,
+        [Description("Session ID of the document to snapshot.")]
+        string doc_id,
+        [Description("If true, discard redo history when compacting. Default false.")]
+        bool discard_redo = false)
+    {
+        sessions.Compact(doc_id, discard_redo);
+        return $"Snapshot created for session '{doc_id}'. WAL compacted.";
+    }
 }

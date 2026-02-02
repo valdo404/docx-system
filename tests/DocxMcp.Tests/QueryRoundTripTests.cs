@@ -19,7 +19,7 @@ public class QueryRoundTripTests : IDisposable
 
     public QueryRoundTripTests()
     {
-        _sessions = new SessionManager();
+        _sessions = TestHelpers.CreateSessionManager();
         _session = _sessions.Create();
     }
 

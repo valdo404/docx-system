@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using DocxMcp;
+using DocxMcp.Persistence;
 using DocxMcp.Tools;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -13,8 +14,10 @@ builder.Logging.AddConsole(options =>
     options.LogToStandardErrorThreshold = LogLevel.Trace;
 });
 
-// Register our session manager as a singleton
+// Register persistence and session management
+builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<SessionManager>();
+builder.Services.AddHostedService<SessionRestoreService>();
 
 // Register MCP server with stdio transport and explicit tool types (AOT-safe)
 builder.Services
@@ -23,7 +26,7 @@ builder.Services
         options.ServerInfo = new()
         {
             Name = "docx-mcp",
-            Version = "2.0.0"
+            Version = "2.1.0"
         };
     })
     .WithStdioServerTransport()
@@ -33,6 +36,7 @@ builder.Services
     .WithTools<ReadSectionTool>()
     .WithTools<ReadHeadingContentTool>()
     .WithTools<PatchTool>()
-    .WithTools<ExportTools>();
+    .WithTools<ExportTools>()
+    .WithTools<HistoryTools>();
 
 await builder.Build().RunAsync();
