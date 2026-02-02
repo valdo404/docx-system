@@ -19,6 +19,11 @@ FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-preview AS runtime
 WORKDIR /app
 COPY --from=build /app .
 
+# Sessions persistence directory (WAL, baselines, checkpoints)
+RUN mkdir -p /home/app/.docx-mcp/sessions && \
+    chown -R app:app /home/app/.docx-mcp
+VOLUME /home/app/.docx-mcp/sessions
+
 USER app
 
 ENTRYPOINT ["./docx-mcp"]
