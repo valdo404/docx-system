@@ -412,8 +412,8 @@ public sealed class SessionManager
                 var walCount = _store.WalEntryCount(entry.Id);
                 var cursorTarget = entry.CursorPosition;
 
-                // Backward compat: old entries with cursor=0 but WAL entries exist
-                if (cursorTarget == 0 && walCount > 0 && entry.CheckpointPositions.Count == 0)
+                // Backward compat: old entries without cursor tracking (sentinel -1)
+                if (cursorTarget < 0)
                     cursorTarget = walCount;
 
                 var replayCount = Math.Min(cursorTarget, walCount);

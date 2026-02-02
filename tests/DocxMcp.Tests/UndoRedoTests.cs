@@ -498,11 +498,11 @@ public class UndoRedoTests : IDisposable
 
         PatchTool.ApplyPatch(mgr1, id, AddParagraphPatch("Legacy"));
 
-        // Manually set cursor to 0 in index to simulate old format
+        // Manually set cursor to -1 in index to simulate old format (no cursor tracking)
         var index = _store.LoadIndex();
         var entry = index.Sessions.Find(e => e.Id == id);
         Assert.NotNull(entry);
-        entry!.CursorPosition = 0;
+        entry!.CursorPosition = -1;
         entry.CheckpointPositions.Clear();
         _store.SaveIndex(index);
 

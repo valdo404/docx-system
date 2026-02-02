@@ -16,7 +16,7 @@ public sealed class SessionEntry
     public DateTime LastModifiedAt { get; set; }
     public string DocxFile { get; set; } = "";
     public int WalCount { get; set; }
-    public int CursorPosition { get; set; }
+    public int CursorPosition { get; set; } = -1;
     public List<int> CheckpointPositions { get; set; } = new();
 }
 
