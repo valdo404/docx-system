@@ -17,8 +17,8 @@ Download and run the \`.exe\` installer for your architecture.
 
 > **Note**: Windows SmartScreen may show a warning for unsigned binaries. Click "More info" → "Run anyway".
 
-#### macOS
-Download the \`.dmg\` for your architecture, open it, and run the installer.
+#### macOS (Universal Binary - Intel & Apple Silicon)
+Download the \`.dmg\`, open it, and run the installer. Works on both Intel and Apple Silicon Macs.
 
 > **Note**: macOS may block unsigned installers. Right-click → Open, or run:
 > \`\`\`bash

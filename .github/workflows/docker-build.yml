@@ -208,15 +208,12 @@ jobs:
           path: dist/installers/*.exe
 
   # =============================================================================
-  # macOS Installer (DMG)
+  # macOS Installer (Universal DMG)
   # =============================================================================
   installer-macos:
-    name: macOS Installer ${{ matrix.arch }}
+    name: macOS Universal Installer
     needs: test
     runs-on: macos-latest
-    strategy:
-      matrix:
-        arch: [x64, arm64]
 
     steps:
       - uses: actions/checkout@v4
@@ -227,30 +224,70 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           dotnet-quality: preview
 
-      - name: Build MCP Server (NativeAOT)
+      - name: Build MCP Server (x64)
         run: |
           dotnet publish src/DocxMcp/DocxMcp.csproj \
             --configuration Release \
-            --runtime osx-${{ matrix.arch }} \
+            --runtime osx-x64 \
             --self-contained true \
             -p:PublishAot=true \
             -p:OptimizationPreference=Size \
-            --output dist/macos-${{ matrix.arch }}
+            --output dist/macos-x64
 
-      - name: Build CLI (NativeAOT)
+      - name: Build MCP Server (arm64)
+        run: |
+          dotnet publish src/DocxMcp/DocxMcp.csproj \
+            --configuration Release \
+            --runtime osx-arm64 \
+            --self-contained true \
+            -p:PublishAot=true \
+            -p:OptimizationPreference=Size \
+            --output dist/macos-arm64
+
+      - name: Build CLI (x64)
         run: |
           dotnet publish src/DocxMcp.Cli/DocxMcp.Cli.csproj \
             --configuration Release \
-            --runtime osx-${{ matrix.arch }} \
+            --runtime osx-x64 \
             --self-contained true \
             -p:PublishAot=true \
             -p:OptimizationPreference=Size \
-            --output dist/macos-${{ matrix.arch }}
+            --output dist/macos-x64
 
-      - name: Make binaries executable
+      - name: Build CLI (arm64)
         run: |
-          chmod +x dist/macos-${{ matrix.arch }}/docx-mcp
-          chmod +x dist/macos-${{ matrix.arch }}/docx-cli
+          dotnet publish src/DocxMcp.Cli/DocxMcp.Cli.csproj \
+            --configuration Release \
+            --runtime osx-arm64 \
+            --self-contained true \
+            -p:PublishAot=true \
+            -p:OptimizationPreference=Size \
+            --output dist/macos-arm64
+
+      - name: Create Universal Binaries
+        run: |
+          mkdir -p dist/macos-universal
+
+          # Create universal binary for docx-mcp
+          lipo -create \
+            dist/macos-x64/docx-mcp \
+            dist/macos-arm64/docx-mcp \
+            -output dist/macos-universal/docx-mcp
+
+          # Create universal binary for docx-cli
+          lipo -create \
+            dist/macos-x64/docx-cli \
+            dist/macos-arm64/docx-cli \
+            -output dist/macos-universal/docx-cli
+
+          chmod +x dist/macos-universal/docx-mcp
+          chmod +x dist/macos-universal/docx-cli
+
+          # Verify universal binaries
+          echo "docx-mcp architectures:"
+          lipo -info dist/macos-universal/docx-mcp
+          echo "docx-cli architectures:"
+          lipo -info dist/macos-universal/docx-cli
 
       - name: Extract version
         id: version
@@ -305,7 +342,7 @@ jobs:
       - name: Build PKG installer
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
-          ARCH: ${{ matrix.arch }}
+          ARCH: universal
           SIGNING_IDENTITY: ${{ env.APP_SIGNING_IDENTITY }}
           INSTALLER_SIGNING_IDENTITY: ${{ env.INSTALLER_SIGNING_IDENTITY }}
         run: |
@@ -315,7 +352,7 @@ jobs:
       - name: Build DMG installer
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
-          ARCH: ${{ matrix.arch }}
+          ARCH: universal
           SIGNING_IDENTITY: ${{ env.APP_SIGNING_IDENTITY }}
         run: |
           chmod +x installers/macos/build-dmg.sh
@@ -329,7 +366,7 @@ jobs:
       - name: Upload DMG installer
         uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch }}-dmg
+          name: macos-universal-dmg
           path: dist/installers/*.dmg
 
   # =============================================================================

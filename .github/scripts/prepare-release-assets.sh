@@ -14,13 +14,11 @@ for arch in x64 arm64; do
     fi
 done
 
-# macOS installers (DMG)
-for arch in x64 arm64; do
-    if [[ -d "artifacts/macos-${arch}-dmg" ]]; then
-        echo "Copying macOS $arch DMG..."
-        cp artifacts/macos-${arch}-dmg/*.dmg release-assets/ 2>/dev/null || true
-    fi
-done
+# macOS Universal DMG
+if [[ -d "artifacts/macos-universal-dmg" ]]; then
+    echo "Copying macOS Universal DMG..."
+    cp artifacts/macos-universal-dmg/*.dmg release-assets/ 2>/dev/null || true
+fi
 
 echo ""
 echo "Release assets:"
