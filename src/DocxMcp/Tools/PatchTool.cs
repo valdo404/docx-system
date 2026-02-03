@@ -251,6 +251,7 @@ public sealed class PatchTool
         }
 
         OpenXmlElement? createdElement = null;
+        var trackChanges = RevisionHelper.IsTrackChangesEnabled(wpDoc);
 
         if (path.IsChildrenPath)
         {
@@ -261,14 +262,20 @@ public sealed class PatchTool
                 var items = ElementFactory.CreateListItems(op.Value);
                 for (int i = items.Count - 1; i >= 0; i--)
                 {
-                    parent.InsertChildAt(items[i], index);
+                    if (trackChanges)
+                        RevisionHelper.InsertElementWithTracking(wpDoc, parent, items[i], index);
+                    else
+                        parent.InsertChildAt(items[i], index);
                 }
                 createdElement = items.FirstOrDefault();
             }
             else
             {
                 var element = ElementFactory.CreateFromJson(op.Value, mainPart);
-                parent.InsertChildAt(element, index);
+                if (trackChanges)
+                    RevisionHelper.InsertElementWithTracking(wpDoc, parent, element, index);
+                else
+                    parent.InsertChildAt(element, index);
                 createdElement = element;
             }
         }
@@ -286,13 +293,21 @@ public sealed class PatchTool
             {
                 var items = ElementFactory.CreateListItems(op.Value);
                 foreach (var item in items)
-                    parent.AppendChild(item);
+                {
+                    if (trackChanges)
+                        RevisionHelper.InsertElementWithTracking(wpDoc, parent, item);
+                    else
+                        parent.AppendChild(item);
+                }
                 createdElement = items.FirstOrDefault();
             }
             else
             {
                 var element = ElementFactory.CreateFromJson(op.Value, mainPart);
-                parent.AppendChild(element);
+                if (trackChanges)
+                    RevisionHelper.InsertElementWithTracking(wpDoc, parent, element);
+                else
+                    parent.AppendChild(element);
                 createdElement = element;
             }
         }
@@ -320,25 +335,34 @@ public sealed class PatchTool
         }
 
         string? replacedId = null;
+        var trackChanges = RevisionHelper.IsTrackChangesEnabled(wpDoc);
 
         if (path.Leaf is StyleSegment)
         {
             foreach (var target in targets)
             {
-                replacedId ??= GetId(target.Parent as OpenXmlElement);
+                if (target.Parent is OpenXmlElement parentEl)
+                    replacedId ??= GetId(parentEl);
 
-                if (target is ParagraphProperties)
+                if (target is ParagraphProperties pPr && pPr.Parent is Paragraph para)
                 {
                     var newProps = ElementFactory.CreateParagraphProperties(op.Value);
-                    target.Parent?.ReplaceChild(newProps, target);
+                    if (trackChanges)
+                        RevisionHelper.ApplyParagraphPropertiesWithTracking(wpDoc, para, newProps);
+                    else
+                        target.Parent?.ReplaceChild(newProps, target);
                 }
-                else if (target is RunProperties)
+                else if (target is RunProperties rPr && rPr.Parent is Run run)
                 {
                     var newProps = ElementFactory.CreateRunProperties(op.Value);
-                    target.Parent?.ReplaceChild(newProps, target);
+                    if (trackChanges)
+                        RevisionHelper.ApplyRunPropertiesWithTracking(wpDoc, run, newProps);
+                    else
+                        target.Parent?.ReplaceChild(newProps, target);
                 }
                 else if (target is TableProperties)
                 {
+                    // Table properties change tracking not fully supported
                     var newProps = ElementFactory.CreateTableProperties(op.Value);
                     target.Parent?.ReplaceChild(newProps, target);
                 }
@@ -354,7 +378,10 @@ public sealed class PatchTool
                     ?? throw new InvalidOperationException("Target element has no parent.");
 
                 var newElement = ElementFactory.CreateFromJson(op.Value, mainPart);
-                parent.ReplaceChild(newElement, target);
+                if (trackChanges)
+                    RevisionHelper.ReplaceElementWithTracking(wpDoc, target, newElement);
+                else
+                    parent.ReplaceChild(newElement, target);
             }
         }
 
@@ -381,9 +408,14 @@ public sealed class PatchTool
             return result;
         }
 
+        var trackChanges = RevisionHelper.IsTrackChangesEnabled(wpDoc);
+
         foreach (var target in targets)
         {
-            target.Parent?.RemoveChild(target);
+            if (trackChanges)
+                RevisionHelper.DeleteElementWithTracking(wpDoc, target);
+            else
+                target.Parent?.RemoveChild(target);
         }
 
         result.Status = "success";
@@ -534,6 +566,7 @@ public sealed class PatchTool
         }
 
         // Actually perform replacements
+        var trackChanges = RevisionHelper.IsTrackChangesEnabled(wpDoc);
         int replaced = 0;
         foreach (var target in targets)
         {
@@ -541,7 +574,18 @@ public sealed class PatchTool
                 break;
 
             int remaining = op.MaxCount == 0 ? 0 : op.MaxCount - replaced;
-            replaced += ReplaceTextInElement(target, op.Find, op.Replace, remaining);
+            if (trackChanges)
+            {
+                // Track changes: count matches before, ReplaceTextWithTracking handles one match per paragraph
+                int matchesBefore = CountTextMatches(target, op.Find);
+                RevisionHelper.ReplaceTextWithTracking(wpDoc, target, op.Find, op.Replace);
+                int matchesAfter = CountTextMatches(target, op.Find);
+                replaced += matchesBefore - matchesAfter;
+            }
+            else
+            {
+                replaced += ReplaceTextInElement(target, op.Find, op.Replace, remaining);
+            }
         }
 
         result.Status = "success";

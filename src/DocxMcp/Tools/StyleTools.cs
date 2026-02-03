@@ -78,9 +78,20 @@ public sealed class StyleTools
         if (runs.Count == 0)
             return "No runs found to style.";
 
+        var trackChanges = RevisionHelper.IsTrackChangesEnabled(doc);
+
         foreach (var run in runs)
         {
-            StyleHelper.MergeRunProperties(run, styleEl);
+            if (trackChanges)
+            {
+                // Create RunProperties from style JSON and apply with tracking
+                var newProps = ElementFactory.CreateRunProperties(styleEl);
+                RevisionHelper.ApplyRunPropertiesWithTracking(doc, run, newProps);
+            }
+            else
+            {
+                StyleHelper.MergeRunProperties(run, styleEl);
+            }
         }
 
         // Append to WAL
@@ -162,9 +173,20 @@ public sealed class StyleTools
         if (paragraphs.Count == 0)
             return "No paragraphs found to style.";
 
+        var trackChanges = RevisionHelper.IsTrackChangesEnabled(doc);
+
         foreach (var para in paragraphs)
         {
-            StyleHelper.MergeParagraphProperties(para, styleEl);
+            if (trackChanges)
+            {
+                // Create ParagraphProperties from style JSON and apply with tracking
+                var newProps = ElementFactory.CreateParagraphProperties(styleEl);
+                RevisionHelper.ApplyParagraphPropertiesWithTracking(doc, para, newProps);
+            }
+            else
+            {
+                StyleHelper.MergeParagraphProperties(para, styleEl);
+            }
         }
 
         // Append to WAL
@@ -337,8 +359,19 @@ public sealed class StyleTools
                 runs.AddRange(StyleHelper.CollectRuns(el));
         }
 
+        var trackChanges = RevisionHelper.IsTrackChangesEnabled(doc);
         foreach (var run in runs)
-            StyleHelper.MergeRunProperties(run, styleEl);
+        {
+            if (trackChanges)
+            {
+                var newProps = ElementFactory.CreateRunProperties(styleEl);
+                RevisionHelper.ApplyRunPropertiesWithTracking(doc, run, newProps);
+            }
+            else
+            {
+                StyleHelper.MergeRunProperties(run, styleEl);
+            }
+        }
     }
 
     internal static void ReplayStyleParagraph(JsonElement patch, WordprocessingDocument doc)
@@ -365,8 +398,19 @@ public sealed class StyleTools
                 paragraphs.AddRange(StyleHelper.CollectParagraphs(el));
         }
 
+        var trackChanges = RevisionHelper.IsTrackChangesEnabled(doc);
         foreach (var para in paragraphs)
-            StyleHelper.MergeParagraphProperties(para, styleEl);
+        {
+            if (trackChanges)
+            {
+                var newProps = ElementFactory.CreateParagraphProperties(styleEl);
+                RevisionHelper.ApplyParagraphPropertiesWithTracking(doc, para, newProps);
+            }
+            else
+            {
+                StyleHelper.MergeParagraphProperties(para, styleEl);
+            }
+        }
     }
 
     internal static void ReplayStyleTable(JsonElement patch, WordprocessingDocument doc)

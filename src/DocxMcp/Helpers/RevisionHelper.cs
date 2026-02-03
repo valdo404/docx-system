@@ -75,7 +75,7 @@ public static class RevisionHelper
         {
             var info = CreateRevisionInfo(ins, "insertion", ins.Id?.Value, ins.Author?.Value, ins.Date?.Value);
             info.Content = ins.InnerText;
-            info.ElementId = ElementIdManager.GetId(ins.Parent as OpenXmlElement);
+            info.ElementId = ins.Parent is OpenXmlElement parent ? ElementIdManager.GetId(parent) : null;
 
             if (MatchesFilters(info, authorFilter, typeFilter))
                 results.Add(info);
@@ -87,7 +87,7 @@ public static class RevisionHelper
             var info = CreateRevisionInfo(del, "deletion", del.Id?.Value, del.Author?.Value, del.Date?.Value);
             // Deleted text is stored in DeletedText elements
             info.Content = string.Join("", del.Descendants<DeletedText>().Select(dt => dt.Text));
-            info.ElementId = ElementIdManager.GetId(del.Parent as OpenXmlElement);
+            info.ElementId = del.Parent is OpenXmlElement parent ? ElementIdManager.GetId(parent) : null;
 
             if (MatchesFilters(info, authorFilter, typeFilter))
                 results.Add(info);
@@ -137,7 +137,7 @@ public static class RevisionHelper
                 var info = CreateRevisionInfo(rPrChange, "format_change", rPrChange.Id?.Value,
                     rPrChange.Author?.Value, rPrChange.Date?.Value);
                 info.Content = $"[Run formatting change: '{run.InnerText}']";
-                info.ElementId = ElementIdManager.GetId(run.Parent as OpenXmlElement);
+                info.ElementId = run.Parent is OpenXmlElement parent ? ElementIdManager.GetId(parent) : null;
 
                 if (MatchesFilters(info, authorFilter, typeFilter))
                     results.Add(info);
@@ -216,7 +216,7 @@ public static class RevisionHelper
             var info = CreateRevisionInfo(moveFrom, "move_from", moveFrom.Id?.Value,
                 moveFrom.Author?.Value, moveFrom.Date?.Value);
             info.Content = moveFrom.InnerText;
-            info.ElementId = ElementIdManager.GetId(moveFrom.Parent as OpenXmlElement);
+            info.ElementId = moveFrom.Parent is OpenXmlElement parent ? ElementIdManager.GetId(parent) : null;
 
             if (MatchesFilters(info, authorFilter, typeFilter))
                 results.Add(info);
@@ -228,7 +228,7 @@ public static class RevisionHelper
             var info = CreateRevisionInfo(moveTo, "move_to", moveTo.Id?.Value,
                 moveTo.Author?.Value, moveTo.Date?.Value);
             info.Content = moveTo.InnerText;
-            info.ElementId = ElementIdManager.GetId(moveTo.Parent as OpenXmlElement);
+            info.ElementId = moveTo.Parent is OpenXmlElement parent ? ElementIdManager.GetId(parent) : null;
 
             if (MatchesFilters(info, authorFilter, typeFilter))
                 results.Add(info);
@@ -384,7 +384,7 @@ public static class RevisionHelper
             if (pPrChange?.Id?.Value == idStr)
             {
                 // Restore previous properties from pPrChange
-                var prevProps = pPrChange.PreviousParagraphProperties;
+                var prevProps = pPrChange.GetFirstChild<PreviousParagraphProperties>();
                 if (prevProps is not null && pPr is not null)
                 {
                     // Replace current properties with previous
@@ -419,7 +419,7 @@ public static class RevisionHelper
             var rPrChange = rPr?.RunPropertiesChange;
             if (rPrChange?.Id?.Value == idStr)
             {
-                var prevProps = rPrChange.PreviousRunProperties;
+                var prevProps = rPrChange.GetFirstChild<PreviousRunProperties>();
                 if (prevProps is not null && rPr is not null)
                 {
                     var cloned = (RunProperties)prevProps.CloneNode(true);
@@ -579,6 +579,494 @@ public static class RevisionHelper
         }
 
         return stats;
+    }
+
+    // --- Revision creation methods (for tracked patches) ---
+
+    private const string DefaultAuthor = "MCP Server";
+
+    /// <summary>
+    /// Allocate the next revision ID (max existing + 1). Never reuses deleted IDs.
+    /// </summary>
+    public static int AllocateRevisionId(WordprocessingDocument doc)
+    {
+        var body = doc.MainDocumentPart?.Document?.Body;
+        if (body is null) return 0;
+
+        var maxId = -1;
+
+        // Check all revision types for max ID
+        foreach (var ins in body.Descendants<InsertedRun>())
+        {
+            if (ins.Id?.Value is not null && int.TryParse(ins.Id.Value, out var id) && id > maxId)
+                maxId = id;
+        }
+
+        foreach (var del in body.Descendants<DeletedRun>())
+        {
+            if (del.Id?.Value is not null && int.TryParse(del.Id.Value, out var id) && id > maxId)
+                maxId = id;
+        }
+
+        foreach (var pPrChange in body.Descendants<ParagraphPropertiesChange>())
+        {
+            if (pPrChange.Id?.Value is not null && int.TryParse(pPrChange.Id.Value, out var id) && id > maxId)
+                maxId = id;
+        }
+
+        foreach (var rPrChange in body.Descendants<RunPropertiesChange>())
+        {
+            if (rPrChange.Id?.Value is not null && int.TryParse(rPrChange.Id.Value, out var id) && id > maxId)
+                maxId = id;
+        }
+
+        return maxId + 1;
+    }
+
+    /// <summary>
+    /// Insert a block-level element (paragraph, table) with tracking.
+    /// For paragraphs: marks with w:ins in pPr.
+    /// For other elements: wraps content in w:ins where applicable.
+    /// </summary>
+    public static void InsertElementWithTracking(
+        WordprocessingDocument doc,
+        OpenXmlElement parent,
+        OpenXmlElement newElement,
+        int? insertIndex = null,
+        string? author = null)
+    {
+        var revisionId = AllocateRevisionId(doc);
+        var effectiveAuthor = author ?? DefaultAuthor;
+        var date = DateTime.UtcNow;
+
+        if (newElement is Paragraph para)
+        {
+            // Mark paragraph as inserted via pPr > ins
+            var pPr = para.ParagraphProperties ?? new ParagraphProperties();
+            if (para.ParagraphProperties is null)
+                para.PrependChild(pPr);
+
+            pPr.PrependChild(new Inserted
+            {
+                Id = revisionId.ToString(),
+                Author = effectiveAuthor,
+                Date = date
+            });
+
+            // Also wrap all runs in w:ins
+            WrapParagraphRunsInInsertion(para, revisionId, effectiveAuthor, date);
+        }
+        else if (newElement is Table table)
+        {
+            // For tables, mark each paragraph within as inserted
+            foreach (var tablePara in table.Descendants<Paragraph>())
+            {
+                var nextId = AllocateRevisionId(doc);
+                var tpPr = tablePara.ParagraphProperties ?? new ParagraphProperties();
+                if (tablePara.ParagraphProperties is null)
+                    tablePara.PrependChild(tpPr);
+
+                tpPr.PrependChild(new Inserted
+                {
+                    Id = nextId.ToString(),
+                    Author = effectiveAuthor,
+                    Date = date
+                });
+
+                WrapParagraphRunsInInsertion(tablePara, nextId, effectiveAuthor, date);
+            }
+        }
+
+        // Insert the element
+        if (insertIndex.HasValue)
+        {
+            parent.InsertChildAt(newElement, insertIndex.Value);
+        }
+        else
+        {
+            parent.AppendChild(newElement);
+        }
+    }
+
+    /// <summary>
+    /// Delete a block-level element with tracking.
+    /// Converts content to deleted text markers instead of removing.
+    /// </summary>
+    public static void DeleteElementWithTracking(
+        WordprocessingDocument doc,
+        OpenXmlElement element,
+        string? author = null)
+    {
+        var effectiveAuthor = author ?? DefaultAuthor;
+        var date = DateTime.UtcNow;
+
+        if (element is Paragraph para)
+        {
+            // Convert all runs to deleted runs
+            var runs = para.Elements<Run>().ToList();
+            foreach (var run in runs)
+            {
+                var revisionId = AllocateRevisionId(doc);
+                var deletedRun = CreateDeletedRunFromRun(run, revisionId, effectiveAuthor, date);
+                para.InsertBefore(deletedRun, run);
+                run.Remove();
+            }
+
+            // Mark paragraph as deleted (delete marker)
+            var pPr = para.ParagraphProperties ?? new ParagraphProperties();
+            if (para.ParagraphProperties is null)
+                para.PrependChild(pPr);
+
+            var deleteId = AllocateRevisionId(doc);
+            // Add paragraph mark deletion
+            var rPr = pPr.GetFirstChild<ParagraphMarkRunProperties>() ?? new ParagraphMarkRunProperties();
+            if (pPr.GetFirstChild<ParagraphMarkRunProperties>() is null)
+                pPr.AppendChild(rPr);
+
+            // Note: We don't actually add a Deleted element to pPr because
+            // that's for paragraph mark deletion, not the whole paragraph.
+            // Instead, just delete all runs with tracking.
+        }
+        else if (element is Table table)
+        {
+            // Delete all paragraphs within the table with tracking
+            foreach (var tablePara in table.Descendants<Paragraph>().ToList())
+            {
+                DeleteElementWithTracking(doc, tablePara, author);
+            }
+        }
+        else if (element is TableRow row)
+        {
+            // Delete all cells' content with tracking
+            foreach (var cell in row.Elements<TableCell>())
+            {
+                foreach (var cellPara in cell.Elements<Paragraph>().ToList())
+                {
+                    DeleteElementWithTracking(doc, cellPara, author);
+                }
+            }
+        }
+        else if (element is Run run)
+        {
+            // Single run deletion
+            var revisionId = AllocateRevisionId(doc);
+            var deletedRun = CreateDeletedRunFromRun(run, revisionId, effectiveAuthor, date);
+            run.Parent?.InsertBefore(deletedRun, run);
+            run.Remove();
+        }
+    }
+
+    /// <summary>
+    /// Replace an element with tracking (delete old + insert new).
+    /// </summary>
+    public static void ReplaceElementWithTracking(
+        WordprocessingDocument doc,
+        OpenXmlElement oldElement,
+        OpenXmlElement newElement,
+        string? author = null)
+    {
+        var parent = oldElement.Parent;
+        if (parent is null)
+            throw new InvalidOperationException("Element has no parent.");
+
+        // Find the position
+        var siblings = parent.ChildElements.ToList();
+        var index = siblings.IndexOf(oldElement);
+
+        // Delete old with tracking
+        DeleteElementWithTracking(doc, oldElement, author);
+
+        // Insert new with tracking at the same position
+        InsertElementWithTracking(doc, parent, newElement, index, author);
+    }
+
+    /// <summary>
+    /// Replace text within an element with tracking.
+    /// Creates w:del for old text and w:ins for new text.
+    /// </summary>
+    public static void ReplaceTextWithTracking(
+        WordprocessingDocument doc,
+        OpenXmlElement element,
+        string find,
+        string replace,
+        string? author = null)
+    {
+        var effectiveAuthor = author ?? DefaultAuthor;
+        var date = DateTime.UtcNow;
+
+        var paragraphs = element is Paragraph p
+            ? new List<Paragraph> { p }
+            : element.Descendants<Paragraph>().ToList();
+
+        foreach (var para in paragraphs)
+        {
+            var runs = para.Elements<Run>().ToList();
+            if (runs.Count == 0) continue;
+
+            // Concatenate all run texts
+            var allText = string.Concat(runs.Select(r => r.InnerText));
+            var matchIdx = allText.IndexOf(find, StringComparison.Ordinal);
+            if (matchIdx < 0) continue;
+
+            var matchEnd = matchIdx + find.Length;
+
+            // Map character positions to runs and perform replacement
+            int pos = 0;
+            bool replacementDone = false;
+
+            foreach (var run in runs.ToList())
+            {
+                var textElem = run.GetFirstChild<Text>();
+                if (textElem is null)
+                {
+                    pos += run.InnerText.Length;
+                    continue;
+                }
+
+                var runStart = pos;
+                var runEnd = pos + textElem.Text.Length;
+
+                // Check if this run overlaps with the find range
+                if (runEnd <= matchIdx || runStart >= matchEnd)
+                {
+                    pos = runEnd;
+                    continue;
+                }
+
+                // This run overlaps with the search text
+                var overlapStart = Math.Max(matchIdx, runStart) - runStart;
+                var overlapEnd = Math.Min(matchEnd, runEnd) - runStart;
+
+                var textBefore = textElem.Text[..overlapStart];
+                var textToDelete = textElem.Text[overlapStart..overlapEnd];
+                var textAfter = textElem.Text[overlapEnd..];
+
+                // Create runs for the different parts
+                var newElements = new List<OpenXmlElement>();
+
+                // Before text (unchanged)
+                if (textBefore.Length > 0)
+                {
+                    var beforeRun = (Run)run.CloneNode(true);
+                    beforeRun.GetFirstChild<Text>()!.Text = textBefore;
+                    newElements.Add(beforeRun);
+                }
+
+                // Deleted text
+                if (textToDelete.Length > 0)
+                {
+                    var delId = AllocateRevisionId(doc);
+                    var delRun = new DeletedRun
+                    {
+                        Id = delId.ToString(),
+                        Author = effectiveAuthor,
+                        Date = date
+                    };
+                    var delRunContent = (Run)run.CloneNode(true);
+                    var delText = delRunContent.GetFirstChild<Text>();
+                    if (delText is not null)
+                    {
+                        var deletedText = new DeletedText(textToDelete) { Space = SpaceProcessingModeValues.Preserve };
+                        delText.Parent?.InsertBefore(deletedText, delText);
+                        delText.Remove();
+                    }
+                    delRun.AppendChild(delRunContent);
+                    newElements.Add(delRun);
+                }
+
+                // First overlapping run: add the replacement text in w:ins
+                if (!replacementDone && runStart <= matchIdx)
+                {
+                    var insId = AllocateRevisionId(doc);
+                    var insRun = new InsertedRun
+                    {
+                        Id = insId.ToString(),
+                        Author = effectiveAuthor,
+                        Date = date
+                    };
+                    var insRunContent = (Run)run.CloneNode(true);
+                    insRunContent.GetFirstChild<Text>()!.Text = replace;
+                    insRun.AppendChild(insRunContent);
+                    newElements.Add(insRun);
+                    replacementDone = true;
+                }
+
+                // After text (unchanged)
+                if (textAfter.Length > 0)
+                {
+                    var afterRun = (Run)run.CloneNode(true);
+                    afterRun.GetFirstChild<Text>()!.Text = textAfter;
+                    newElements.Add(afterRun);
+                }
+
+                // Replace the original run with the new elements
+                foreach (var newEl in newElements)
+                {
+                    para.InsertBefore(newEl, run);
+                }
+                run.Remove();
+
+                pos = runEnd;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Apply run property changes with tracking (creates w:rPrChange).
+    /// </summary>
+    public static void ApplyRunPropertiesWithTracking(
+        WordprocessingDocument doc,
+        Run run,
+        RunProperties newProps,
+        string? author = null)
+    {
+        var revisionId = AllocateRevisionId(doc);
+        var effectiveAuthor = author ?? DefaultAuthor;
+        var date = DateTime.UtcNow;
+
+        var existingProps = run.RunProperties;
+        var previousProps = existingProps is not null
+            ? new PreviousRunProperties((OpenXmlElement[])existingProps.ChildElements.Select(c => c.CloneNode(true)).ToArray())
+            : new PreviousRunProperties();
+
+        // Create or update RunProperties
+        var rPr = existingProps ?? new RunProperties();
+        if (run.RunProperties is null)
+            run.PrependChild(rPr);
+
+        // Apply new properties (merge)
+        foreach (var child in newProps.ChildElements)
+        {
+            var existing = rPr.ChildElements.FirstOrDefault(c => c.GetType() == child.GetType());
+            if (existing is not null)
+                rPr.ReplaceChild(child.CloneNode(true), existing);
+            else
+                rPr.AppendChild(child.CloneNode(true));
+        }
+
+        // Add the change tracking element
+        var existingChange = rPr.GetFirstChild<RunPropertiesChange>();
+        existingChange?.Remove();
+
+        var rPrChange = new RunPropertiesChange
+        {
+            Id = revisionId.ToString(),
+            Author = effectiveAuthor,
+            Date = date
+        };
+        rPrChange.AppendChild(previousProps);
+        rPr.AppendChild(rPrChange);
+    }
+
+    /// <summary>
+    /// Apply paragraph property changes with tracking (creates w:pPrChange).
+    /// </summary>
+    public static void ApplyParagraphPropertiesWithTracking(
+        WordprocessingDocument doc,
+        Paragraph para,
+        ParagraphProperties newProps,
+        string? author = null)
+    {
+        var revisionId = AllocateRevisionId(doc);
+        var effectiveAuthor = author ?? DefaultAuthor;
+        var date = DateTime.UtcNow;
+
+        var existingProps = para.ParagraphProperties;
+        var previousProps = existingProps is not null
+            ? new PreviousParagraphProperties((OpenXmlElement[])existingProps.ChildElements
+                .Where(c => c is not ParagraphPropertiesChange)
+                .Select(c => c.CloneNode(true)).ToArray())
+            : new PreviousParagraphProperties();
+
+        // Create or update ParagraphProperties
+        var pPr = existingProps ?? new ParagraphProperties();
+        if (para.ParagraphProperties is null)
+            para.PrependChild(pPr);
+
+        // Apply new properties (merge)
+        foreach (var child in newProps.ChildElements)
+        {
+            if (child is ParagraphPropertiesChange) continue;
+            var existing = pPr.ChildElements.FirstOrDefault(c => c.GetType() == child.GetType());
+            if (existing is not null)
+                pPr.ReplaceChild(child.CloneNode(true), existing);
+            else
+                pPr.AppendChild(child.CloneNode(true));
+        }
+
+        // Add the change tracking element
+        var existingChange = pPr.GetFirstChild<ParagraphPropertiesChange>();
+        existingChange?.Remove();
+
+        var pPrChange = new ParagraphPropertiesChange
+        {
+            Id = revisionId.ToString(),
+            Author = effectiveAuthor,
+            Date = date
+        };
+        pPrChange.AppendChild(previousProps);
+        pPr.AppendChild(pPrChange);
+    }
+
+    // --- Private helpers for tracking ---
+
+    /// <summary>
+    /// Wrap all runs in a paragraph inside w:ins elements.
+    /// </summary>
+    private static void WrapParagraphRunsInInsertion(Paragraph para, int revisionId, string author, DateTime date)
+    {
+        var runs = para.Elements<Run>().ToList();
+        if (runs.Count == 0) return;
+
+        // Group consecutive runs into a single InsertedRun
+        var insRun = new InsertedRun
+        {
+            Id = revisionId.ToString(),
+            Author = author,
+            Date = date
+        };
+
+        // Find insertion point (after paragraph properties)
+        var insertAfter = para.ParagraphProperties as OpenXmlElement;
+
+        foreach (var run in runs)
+        {
+            var cloned = (Run)run.CloneNode(true);
+            insRun.AppendChild(cloned);
+            run.Remove();
+        }
+
+        if (insertAfter is not null)
+            para.InsertAfter(insRun, insertAfter);
+        else
+            para.PrependChild(insRun);
+    }
+
+    /// <summary>
+    /// Create a DeletedRun from an existing Run.
+    /// Converts Text elements to DeletedText.
+    /// </summary>
+    private static DeletedRun CreateDeletedRunFromRun(Run run, int revisionId, string author, DateTime date)
+    {
+        var deletedRun = new DeletedRun
+        {
+            Id = revisionId.ToString(),
+            Author = author,
+            Date = date
+        };
+
+        var clonedRun = (Run)run.CloneNode(true);
+
+        // Convert Text to DeletedText
+        foreach (var text in clonedRun.Descendants<Text>().ToList())
+        {
+            var deletedText = new DeletedText(text.Text) { Space = SpaceProcessingModeValues.Preserve };
+            text.Parent?.InsertBefore(deletedText, text);
+            text.Remove();
+        }
+
+        deletedRun.AppendChild(clonedRun);
+        return deletedRun;
     }
 
     // --- Private helpers ---
