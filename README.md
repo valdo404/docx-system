@@ -61,7 +61,41 @@ docker run --rm \
   valdo404/docx-mcp:1.0.0 style-element <doc_id> '{"bold":true,"color":"FF0000"}'
 ```
 
-### Native Binary
+### Native Binary (from GitHub Releases)
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/valdo404/docx-system/releases).
+
+#### macOS
+
+```bash
+# Download and extract
+curl -L https://github.com/valdo404/docx-system/releases/latest/download/docx-mcp-macos-arm64.tar.gz | tar xz
+
+# Remove quarantine attribute (required for unsigned binaries)
+xattr -cr docx-mcp docx-cli
+
+# Move to PATH (optional)
+sudo mv docx-mcp docx-cli /usr/local/bin/
+```
+
+> **Note**: The binaries are not signed with an Apple Developer certificate. macOS will block them by default. The `xattr -cr` command removes the quarantine attribute. Alternatively, right-click → Open → Open Anyway.
+
+#### Windows
+
+```powershell
+# Download the installer or zip from GitHub Releases
+# If Windows SmartScreen shows a warning:
+# Click "More info" → "Run anyway"
+```
+
+#### Linux
+
+```bash
+# Use Docker (recommended) or build from source
+docker pull valdo404/docx-mcp:latest
+```
+
+### Build from Source
 
 ```bash
 # Build NativeAOT binaries (requires .NET 10 SDK)
