@@ -12,6 +12,9 @@
   #define MyAppVersion "0.0.0"
 #endif
 
+; Extract numeric version for VersionInfo (X.X.X format only)
+#define NumericVersion Copy(MyAppVersion, 1, Pos("-", MyAppVersion + "-") - 1)
+
 ; Architecture will be passed via command line: /DMyAppArch=x64
 #ifndef MyAppArch
   #define MyAppArch "x64"
@@ -40,11 +43,11 @@ PrivilegesRequired=admin
 ArchitecturesAllowed={#MyAppArch}compatible
 ArchitecturesInstallIn64BitMode={#MyAppArch}
 UninstallDisplayIcon={app}\{#MyAppExeName}
-VersionInfoVersion={#MyAppVersion}
+VersionInfoVersion={#NumericVersion}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=MCP Server for Microsoft Word Document Manipulation
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion={#MyAppVersion}
+VersionInfoProductVersion={#NumericVersion}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
