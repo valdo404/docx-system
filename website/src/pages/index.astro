@@ -303,6 +303,39 @@ import Layout from '../layouts/Layout.astro';
     </div>
   </section>
 
+  <!-- Doccy - The AI Document Assistant (inspired by a certain paperclip) -->
+  <div class="doccy-container" id="doccy">
+    <div class="doccy-bubble" id="doccy-bubble">
+      <button class="doccy-close" id="doccy-close" aria-label="Close">&times;</button>
+      <p id="doccy-message">Hi! I'm Doccy. It looks like you're trying to edit a Word document. Would you like AI to do it for you?</p>
+      <a href="https://github.com/valdo404/docx-mcp" class="doccy-btn" target="_blank">Yes, show me how!</a>
+    </div>
+    <div class="doccy-character" id="doccy-character">
+      <svg viewBox="0 0 100 160" fill="none" xmlns="http://www.w3.org/2000/svg" class="doccy-svg">
+        <!-- Paperclip body -->
+        <path
+          d="M30 140 L30 40 Q30 15 50 15 Q70 15 70 40 L70 120 Q70 135 55 135 Q40 135 40 120 L40 50 Q40 40 50 40 Q60 40 60 50 L60 100"
+          stroke="#0078d4"
+          stroke-width="8"
+          stroke-linecap="round"
+          fill="none"
+          class="doccy-body"
+        />
+        <!-- Left eye -->
+        <ellipse cx="42" cy="55" rx="8" ry="10" fill="white" class="doccy-eye-bg"/>
+        <ellipse cx="44" cy="57" rx="4" ry="5" fill="#1a1a1a" class="doccy-pupil doccy-pupil-left"/>
+        <!-- Right eye -->
+        <ellipse cx="58" cy="55" rx="8" ry="10" fill="white" class="doccy-eye-bg"/>
+        <ellipse cx="60" cy="57" rx="4" ry="5" fill="#1a1a1a" class="doccy-pupil doccy-pupil-right"/>
+        <!-- Eyebrows -->
+        <path d="M34 45 Q42 42 50 45" stroke="#0078d4" stroke-width="3" stroke-linecap="round" class="doccy-brow"/>
+        <path d="M50 45 Q58 42 66 45" stroke="#0078d4" stroke-width="3" stroke-linecap="round" class="doccy-brow"/>
+        <!-- Smile -->
+        <path d="M42 72 Q50 82 58 72" stroke="#0078d4" stroke-width="3" stroke-linecap="round" fill="none" class="doccy-smile"/>
+      </svg>
+    </div>
+  </div>
+
   <!-- Footer -->
   <footer class="footer">
     <div class="container">
@@ -1041,5 +1074,272 @@ import Layout from '../layouts/Layout.astro';
       gap: var(--spacing-xxl);
       text-align: center;
     }
+
+    .doccy-container {
+      display: none;
+    }
+  }
+
+  /* Doccy - The AI Document Assistant */
+  .doccy-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 12px;
+  }
+
+  .doccy-container.hidden {
+    display: none;
+  }
+
+  .doccy-bubble {
+    position: relative;
+    background: var(--bg-layer-2);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-l);
+    padding: 20px;
+    max-width: 280px;
+    box-shadow: var(--shadow-16);
+    animation: bubbleIn 0.4s ease-out;
+  }
+
+  .doccy-bubble::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    right: 40px;
+    width: 0;
+    height: 0;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 10px solid var(--bg-layer-2);
+  }
+
+  .doccy-bubble::before {
+    content: '';
+    position: absolute;
+    bottom: -12px;
+    right: 39px;
+    width: 0;
+    height: 0;
+    border-left: 11px solid transparent;
+    border-right: 11px solid transparent;
+    border-top: 11px solid var(--border-default);
+  }
+
+  .doccy-bubble.hidden {
+    display: none;
+  }
+
+  .doccy-close {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    font-size: 20px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px;
+  }
+
+  .doccy-close:hover {
+    color: var(--text-primary);
+  }
+
+  #doccy-message {
+    font-size: var(--font-size-300);
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 16px;
+    padding-right: 16px;
+  }
+
+  .doccy-btn {
+    display: inline-block;
+    background: var(--brand-primary);
+    color: white;
+    padding: 8px 16px;
+    border-radius: var(--radius-s);
+    font-size: var(--font-size-200);
+    font-weight: var(--font-weight-semibold);
+    transition: background 0.15s ease;
+  }
+
+  .doccy-btn:hover {
+    background: var(--brand-primary-hover);
+    text-decoration: none;
+  }
+
+  .doccy-character {
+    width: 80px;
+    height: 120px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+  }
+
+  .doccy-character:hover {
+    transform: scale(1.1);
+  }
+
+  .doccy-svg {
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+  }
+
+  /* Doccy animations */
+  .doccy-body {
+    animation: doccyIdle 3s ease-in-out infinite;
+  }
+
+  .doccy-pupil {
+    animation: doccyLook 4s ease-in-out infinite;
+  }
+
+  .doccy-brow {
+    animation: doccyBrow 5s ease-in-out infinite;
+  }
+
+  @keyframes bubbleIn {
+    0% {
+      opacity: 0;
+      transform: translateY(10px) scale(0.95);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes doccyIdle {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-4px);
+    }
+  }
+
+  @keyframes doccyLook {
+    0%, 40%, 100% {
+      transform: translateX(0);
+    }
+    10%, 30% {
+      transform: translateX(2px);
+    }
+    20% {
+      transform: translateX(-2px);
+    }
+  }
+
+  @keyframes doccyBrow {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-1px);
+    }
+  }
+
+  /* Blink animation - triggered by JS */
+  .doccy-eye-bg.blink {
+    animation: doccyBlink 0.15s ease-in-out;
+  }
+
+  @keyframes doccyBlink {
+    0%, 100% {
+      transform: scaleY(1);
+    }
+    50% {
+      transform: scaleY(0.1);
+    }
+  }
+
+  /* Wave animation - triggered on hover */
+  .doccy-character:hover .doccy-body {
+    animation: doccyWave 0.5s ease-in-out;
+  }
+
+  @keyframes doccyWave {
+    0%, 100% {
+      transform: rotate(0deg);
+    }
+    25% {
+      transform: rotate(-5deg);
+    }
+    75% {
+      transform: rotate(5deg);
+    }
   }
 </style>
+
+<script>
+  // Doccy messages - rotating tips
+  const messages = [
+    "Hi! I'm Doccy. It looks like you're trying to edit a Word document. Would you like AI to do it for you?",
+    "Did you know? I can update tables, format headings, and fix your executive summaries automatically!",
+    "Tired of copy-pasting? Let me connect your AI assistant directly to your .docx files!",
+    "Fun fact: I can undo and redo changes, just like time travel but for documents!",
+    "Looking for a way to batch-edit 100 reports? I've got you covered with agentic workflows!",
+    "I work with Claude, ChatGPT, and any MCP-compatible AI. Pretty cool, right?",
+    "Your documents on SharePoint? Microsoft 365? S3? I'll be there soon!",
+    "Word Add-in coming soon! I'll be right inside Microsoft Word on Windows, Mac, and iPad.",
+  ];
+
+  let messageIndex = 0;
+  let bubbleHidden = false;
+
+  const bubble = document.getElementById('doccy-bubble');
+  const messageEl = document.getElementById('doccy-message');
+  const closeBtn = document.getElementById('doccy-close');
+  const character = document.getElementById('doccy-character');
+  const container = document.getElementById('doccy');
+  const eyeBgs = document.querySelectorAll('.doccy-eye-bg');
+
+  // Close bubble
+  closeBtn?.addEventListener('click', () => {
+    bubble?.classList.add('hidden');
+    bubbleHidden = true;
+  });
+
+  // Click character to show bubble again with new message
+  character?.addEventListener('click', () => {
+    if (bubbleHidden) {
+      messageIndex = (messageIndex + 1) % messages.length;
+      if (messageEl) messageEl.textContent = messages[messageIndex];
+      bubble?.classList.remove('hidden');
+      bubbleHidden = false;
+    }
+  });
+
+  // Rotate messages every 8 seconds if bubble is visible
+  setInterval(() => {
+    if (!bubbleHidden && messageEl) {
+      messageIndex = (messageIndex + 1) % messages.length;
+      messageEl.style.opacity = '0';
+      setTimeout(() => {
+        messageEl.textContent = messages[messageIndex];
+        messageEl.style.opacity = '1';
+      }, 200);
+    }
+  }, 8000);
+
+  // Random blink effect
+  setInterval(() => {
+    eyeBgs.forEach(eye => {
+      eye.classList.add('blink');
+      setTimeout(() => eye.classList.remove('blink'), 150);
+    });
+  }, 3000 + Math.random() * 2000);
+
+  // Add transition for message fade
+  if (messageEl) {
+    messageEl.style.transition = 'opacity 0.2s ease';
+  }
+</script>
