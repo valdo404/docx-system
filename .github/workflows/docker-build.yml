@@ -9,9 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  GHCR_REGISTRY: ghcr.io
-  DOCKERHUB_REGISTRY: docker.io
-  IMAGE_NAME: ${{ github.repository }}
+  DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/docx-mcp
 
 jobs:
   # ─────────────────────────────────────────────
@@ -39,14 +37,11 @@ jobs:
 
   # ─────────────────────────────────────────────
   # Linux multi-arch Docker build (amd64 + arm64)
-  # Pushes to both GHCR and Docker Hub
+  # Pushes to Docker Hub
   # ─────────────────────────────────────────────
   docker-linux:
     needs: test
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
 
     steps:
       - uses: actions/checkout@v4
@@ -57,64 +52,31 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
+      - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request' && vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.DOCKERHUB_REGISTRY }}
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract metadata for GHCR
-        id: meta-ghcr
+      - name: Extract metadata
+        id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
-
-      - name: Extract metadata for Docker Hub
-        id: meta-dockerhub
-        if: vars.DOCKERHUB_USERNAME != ''
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.DOCKERHUB_REGISTRY }}/${{ vars.DOCKERHUB_USERNAME }}/docx-mcp
+          images: ${{ env.DOCKERHUB_IMAGE }}
+          labels: |
+            org.opencontainers.image.title=docx-mcp
+            org.opencontainers.image.description=MCP server for Microsoft Word DOCX manipulation
+            org.opencontainers.image.vendor=${{ vars.DOCKERHUB_USERNAME }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=sha
+            type=sha,prefix=
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
-
-      - name: Combine tags
-        id: tags
-        run: |
-          GHCR_TAGS="${{ steps.meta-ghcr.outputs.tags }}"
-          DOCKERHUB_TAGS="${{ steps.meta-dockerhub.outputs.tags }}"
-          if [ -n "$DOCKERHUB_TAGS" ]; then
-            ALL_TAGS=$(printf "%s\n%s" "$GHCR_TAGS" "$DOCKERHUB_TAGS")
-          else
-            ALL_TAGS="$GHCR_TAGS"
-          fi
-          # Convert newlines to comma for docker build-push-action
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$ALL_TAGS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Build and push (linux/amd64, linux/arm64)
         uses: docker/build-push-action@v6
@@ -122,10 +84,20 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) }}
-          tags: ${{ steps.tags.outputs.tags }}
-          labels: ${{ steps.meta-ghcr.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Update Docker Hub README
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKERHUB_IMAGE }}
+          readme-filepath: ./DOCKER_README.md
+          short-description: "MCP server for Microsoft Word DOCX manipulation - structured queries, undo/redo, Track Changes"
 
   # ─────────────────────────────────────────────
   # Windows native build (x64 + arm64)
