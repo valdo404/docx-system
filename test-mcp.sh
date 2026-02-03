@@ -76,10 +76,17 @@ echo "Test: List Tools"
 TOOLS=$(mcptools tools "$BINARY" 2>/dev/null)
 check "has document_open" "document_open" "$TOOLS"
 check "has query" "query" "$TOOLS"
-check "has apply_patch" "apply_patch" "$TOOLS"
+check "has add_element" "add_element" "$TOOLS"
+check "has replace_element" "replace_element" "$TOOLS"
+check "has remove_element" "remove_element" "$TOOLS"
+check "has replace_text" "replace_text" "$TOOLS"
 check "has export_markdown" "export_markdown" "$TOOLS"
 check "has export_html" "export_html" "$TOOLS"
-check_not "no apply_xml_patch" "apply_xml_patch" "$TOOLS"
+check "has revision_list" "revision_list" "$TOOLS"
+check "has revision_accept" "revision_accept" "$TOOLS"
+check "has revision_reject" "revision_reject" "$TOOLS"
+check "has track_changes_enable" "track_changes_enable" "$TOOLS"
+check_not "no apply_patch (internal only)" "apply_patch" "$TOOLS"
 check_not "no document_close (CLI-only)" "document_close" "$TOOLS"
 check_not "no document_snapshot (CLI-only)" "document_snapshot" "$TOOLS"
 
@@ -136,13 +143,29 @@ else
     pass "document created"
     echo -e "  ${YELLOW}Session ID: ${DOC_ID}${NC}"
 
-    # Apply patches — the patches param is a JSON *string* so inner quotes must be escaped
+    # ── Add Elements (using individual tools) ──
     echo ""
-    echo "Test: Apply Patches (basic)"
-    PATCHES='[{\"op\":\"add\",\"path\":\"/body/children/0\",\"value\":{\"type\":\"heading\",\"level\":1,\"text\":\"Test Document\"}},{\"op\":\"add\",\"path\":\"/body/children/1\",\"value\":{\"type\":\"paragraph\",\"text\":\"This is a test paragraph.\"}},{\"op\":\"add\",\"path\":\"/body/children/2\",\"value\":{\"type\":\"table\",\"headers\":[\"Name\",\"Value\"],\"rows\":[[\"foo\",\"bar\"],[\"baz\",\"qux\"]]}},{\"op\":\"add\",\"path\":\"/body/children/3\",\"value\":{\"type\":\"paragraph\",\"text\":\"Final paragraph.\",\"style\":{\"bold\":true,\"font_size\":14}}}]'
+    echo "Test: Add Elements (individual tools)"
 
-    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES}\"}")
-    check "patches applied" "successfully" "$R"
+    # Add heading
+    VALUE='{\"type\":\"heading\",\"level\":1,\"text\":\"Test Document\"}'
+    R=$(send_cmd "call add_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/children/0\",\"value\":\"${VALUE}\"}")
+    check "heading added" "success" "$R"
+
+    # Add paragraph
+    VALUE='{\"type\":\"paragraph\",\"text\":\"This is a test paragraph.\"}'
+    R=$(send_cmd "call add_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/children/1\",\"value\":\"${VALUE}\"}")
+    check "paragraph added" "success" "$R"
+
+    # Add table
+    VALUE='{\"type\":\"table\",\"headers\":[\"Name\",\"Value\"],\"rows\":[[\"foo\",\"bar\"],[\"baz\",\"qux\"]]}'
+    R=$(send_cmd "call add_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/children/2\",\"value\":\"${VALUE}\"}")
+    check "table added" "success" "$R"
+
+    # Add styled paragraph
+    VALUE='{\"type\":\"paragraph\",\"text\":\"Final paragraph.\",\"style\":{\"bold\":true,\"font_size\":14}}'
+    R=$(send_cmd "call add_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/children/3\",\"value\":\"${VALUE}\"}")
+    check "styled paragraph added" "success" "$R"
 
     # Query body
     echo "Test: Query Body"
@@ -168,9 +191,9 @@ else
     # ── Run-Level Write Support ──
     echo ""
     echo "Test: Run-Level Write (paragraph with styled runs)"
-    PATCHES_RUNS='[{\"op\":\"add\",\"path\":\"/body/children/4\",\"value\":{\"type\":\"paragraph\",\"properties\":{\"alignment\":\"center\"},\"runs\":[{\"text\":\"Bold \",\"style\":{\"bold\":true,\"color\":\"FF0000\"}},{\"text\":\"and \",\"style\":{\"italic\":true}},{\"text\":\"normal text\"}]}}]'
-    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_RUNS}\"}")
-    check "run-level paragraph applied" "successfully" "$R"
+    VALUE='{\"type\":\"paragraph\",\"properties\":{\"alignment\":\"center\"},\"runs\":[{\"text\":\"Bold \",\"style\":{\"bold\":true,\"color\":\"FF0000\"}},{\"text\":\"and \",\"style\":{\"italic\":true}},{\"text\":\"normal text\"}]}'
+    R=$(send_cmd "call add_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/children/4\",\"value\":\"${VALUE}\"}")
+    check "run-level paragraph added" "success" "$R"
 
     R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/paragraph[text~='Bold']\"}")
     check "styled paragraph has runs" "runs" "$R"
@@ -181,9 +204,9 @@ else
     # ── Tab Characters ──
     echo ""
     echo "Test: Tab Characters in Runs"
-    PATCHES_TABS='[{\"op\":\"add\",\"path\":\"/body/children/5\",\"value\":{\"type\":\"heading\",\"level\":2,\"properties\":{\"tabs\":[{\"position\":4680,\"alignment\":\"center\"},{\"position\":9360,\"alignment\":\"right\"}]},\"runs\":[{\"text\":\"Title\",\"style\":{\"color\":\"2E5496\"}},{\"tab\":true},{\"text\":\"Company\",\"style\":{\"bold\":true}},{\"tab\":true},{\"text\":\"2024\",\"style\":{\"italic\":true}}]}}]'
-    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_TABS}\"}")
-    check "heading with tabs applied" "successfully" "$R"
+    VALUE='{\"type\":\"heading\",\"level\":2,\"properties\":{\"tabs\":[{\"position\":4680,\"alignment\":\"center\"},{\"position\":9360,\"alignment\":\"right\"}]},\"runs\":[{\"text\":\"Title\",\"style\":{\"color\":\"2E5496\"}},{\"tab\":true},{\"text\":\"Company\",\"style\":{\"bold\":true}},{\"tab\":true},{\"text\":\"2024\",\"style\":{\"italic\":true}}]}'
+    R=$(send_cmd "call add_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/children/5\",\"value\":\"${VALUE}\"}")
+    check "heading with tabs added" "success" "$R"
 
     R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/heading[1]\"}")
     check "heading has runs" "runs" "$R"
@@ -194,9 +217,9 @@ else
     # ── Rich Table with Styled Cells ──
     echo ""
     echo "Test: Rich Table with Styled Cells"
-    PATCHES_RICH_TABLE='[{\"op\":\"add\",\"path\":\"/body/children/6\",\"value\":{\"type\":\"table\",\"border_style\":\"single\",\"table_alignment\":\"center\",\"headers\":[{\"text\":\"Product\",\"shading\":\"E0E0E0\",\"style\":{\"bold\":true}},{\"text\":\"Price\",\"shading\":\"E0E0E0\",\"style\":{\"bold\":true}}],\"rows\":[{\"cells\":[{\"text\":\"Widget\",\"style\":{\"italic\":true}},{\"text\":\"$10\",\"shading\":\"F0FFF0\"}]},{\"cells\":[{\"text\":\"Total\",\"col_span\":1,\"style\":{\"bold\":true}},{\"text\":\"$10\",\"shading\":\"FFFF00\",\"style\":{\"bold\":true}}]}]}}]'
-    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_RICH_TABLE}\"}")
-    check "rich table applied" "successfully" "$R"
+    VALUE='{\"type\":\"table\",\"border_style\":\"single\",\"table_alignment\":\"center\",\"headers\":[{\"text\":\"Product\",\"shading\":\"E0E0E0\",\"style\":{\"bold\":true}},{\"text\":\"Price\",\"shading\":\"E0E0E0\",\"style\":{\"bold\":true}}],\"rows\":[{\"cells\":[{\"text\":\"Widget\",\"style\":{\"italic\":true}},{\"text\":\"$10\",\"shading\":\"F0FFF0\"}]},{\"cells\":[{\"text\":\"Total\",\"col_span\":1,\"style\":{\"bold\":true}},{\"text\":\"$10\",\"shading\":\"FFFF00\",\"style\":{\"bold\":true}}]}]}'
+    R=$(send_cmd "call add_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/children/6\",\"value\":\"${VALUE}\"}")
+    check "rich table added" "success" "$R"
 
     R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[1]\"}")
     check "rich table has data" "Widget" "$R"
@@ -206,9 +229,8 @@ else
     # ── Replace Text (preserving formatting) ──
     echo ""
     echo "Test: Replace Text (format-preserving)"
-    PATCHES_REPLACE='[{\"op\":\"replace_text\",\"path\":\"/body/paragraph[1]\",\"find\":\"test\",\"replace\":\"replaced\"}]'
-    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_REPLACE}\"}")
-    check "replace_text applied" "successfully" "$R"
+    R=$(send_cmd "call replace_text -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/paragraph[1]\",\"find\":\"test\",\"replace\":\"replaced\"}")
+    check "replace_text applied" "success" "$R"
 
     R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/paragraph[text~='replaced']\"}")
     check "text was replaced" "replaced paragraph" "$R"
@@ -216,9 +238,8 @@ else
     # ── Remove Column ──
     echo ""
     echo "Test: Remove Column"
-    PATCHES_RMCOL='[{\"op\":\"remove_column\",\"path\":\"/body/table[0]\",\"column\":1}]'
-    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_RMCOL}\"}")
-    check "remove_column applied" "successfully" "$R"
+    R=$(send_cmd "call remove_table_column -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[0]\",\"column\":1}")
+    check "remove_column applied" "success" "$R"
 
     R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[0]\"}")
     check "table has 1 column now" "cols.*1" "$R"
@@ -226,9 +247,9 @@ else
     # ── Add Row to Existing Table ──
     echo ""
     echo "Test: Add Row to Table"
-    PATCHES_ADDROW='[{\"op\":\"add\",\"path\":\"/body/table[0]\",\"value\":{\"type\":\"row\",\"cells\":[{\"text\":\"NewItem\",\"style\":{\"italic\":true}}]}}]'
-    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_ADDROW}\"}")
-    check "add row applied" "successfully" "$R"
+    VALUE='{\"type\":\"row\",\"cells\":[{\"text\":\"NewItem\",\"style\":{\"italic\":true}}]}'
+    R=$(send_cmd "call add_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[0]\",\"value\":\"${VALUE}\"}")
+    check "add row applied" "success" "$R"
 
     R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[0]\"}")
     check "table has new row" "NewItem" "$R"
@@ -236,16 +257,15 @@ else
     # ── Remove Row ──
     echo ""
     echo "Test: Remove Row"
-    PATCHES_RMROW='[{\"op\":\"remove\",\"path\":\"/body/table[0]/row[2]\"}]'
-    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_RMROW}\"}")
-    check "remove row applied" "successfully" "$R"
+    R=$(send_cmd "call remove_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[0]/row[2]\"}")
+    check "remove row applied" "success" "$R"
 
     # ── Replace Cell ──
     echo ""
     echo "Test: Replace Cell"
-    PATCHES_CELL='[{\"op\":\"replace\",\"path\":\"/body/table[1]/row[1]/cell[0]\",\"value\":{\"type\":\"cell\",\"text\":\"Gizmo\",\"style\":{\"bold\":true},\"shading\":\"E0FFE0\"}}]'
-    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_CELL}\"}")
-    check "replace cell applied" "successfully" "$R"
+    VALUE='{\"type\":\"cell\",\"text\":\"Gizmo\",\"style\":{\"bold\":true},\"shading\":\"E0FFE0\"}'
+    R=$(send_cmd "call replace_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[1]/row[1]/cell[0]\",\"value\":\"${VALUE}\"}")
+    check "replace cell applied" "success" "$R"
 
     R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/table[1]/row[1]/cell[0]\"}")
     check "cell was replaced" "Gizmo" "$R"
@@ -253,13 +273,35 @@ else
     # ── Paragraph with line breaks ──
     echo ""
     echo "Test: Paragraph with Line Breaks"
-    PATCHES_BRK='[{\"op\":\"add\",\"path\":\"/body/children/7\",\"value\":{\"type\":\"paragraph\",\"runs\":[{\"text\":\"Line one\"},{\"break\":\"line\"},{\"text\":\"Line two\"}]}}]'
-    R=$(send_cmd "call apply_patch -p {\"doc_id\":\"${DOC_ID}\",\"patches\":\"${PATCHES_BRK}\"}")
-    check "paragraph with break applied" "successfully" "$R"
+    VALUE='{\"type\":\"paragraph\",\"runs\":[{\"text\":\"Line one\"},{\"break\":\"line\"},{\"text\":\"Line two\"}]}'
+    R=$(send_cmd "call add_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/children/7\",\"value\":\"${VALUE}\"}")
+    check "paragraph with break added" "success" "$R"
 
     R=$(send_cmd "call query -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/paragraph[text~='Line one']\"}")
     check "break paragraph has runs" "runs" "$R"
     check "break paragraph has break" "break" "$R"
+
+    # ── Track Changes / Revision Mode ──
+    echo ""
+    echo "Test: Track Changes (Revision Mode)"
+
+    # Enable track changes
+    R=$(send_cmd "call track_changes_enable -p {\"doc_id\":\"${DOC_ID}\",\"enabled\":true}")
+    check "track changes enabled" "enabled" "$R"
+
+    # Add a paragraph (should be tracked as insertion)
+    VALUE='{\"type\":\"paragraph\",\"text\":\"This is a tracked insertion.\"}'
+    R=$(send_cmd "call add_element -p {\"doc_id\":\"${DOC_ID}\",\"path\":\"/body/children/8\",\"value\":\"${VALUE}\"}")
+    check "tracked paragraph added" "success" "$R"
+
+    # List revisions
+    R=$(send_cmd "call revision_list -p {\"doc_id\":\"${DOC_ID}\"}")
+    check "revision list works" "revisions" "$R"
+    # Note: The insertion may or may not show up immediately depending on implementation
+
+    # Disable track changes
+    R=$(send_cmd "call track_changes_enable -p {\"doc_id\":\"${DOC_ID}\",\"enabled\":false}")
+    check "track changes disabled" "disabled" "$R"
 
     # Export markdown
     echo ""

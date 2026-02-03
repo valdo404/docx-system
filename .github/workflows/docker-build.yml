@@ -1,15 +1,16 @@
-name: Docker Multi-Platform Build
+name: Build, Test & Release
 
 on:
   push:
-    branches: [ '**' ]
+    branches: [ main, master ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
+  GHCR_REGISTRY: ghcr.io
+  DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
@@ -38,6 +39,7 @@ jobs:
 
   # ─────────────────────────────────────────────
   # Linux multi-arch Docker build (amd64 + arm64)
+  # Pushes to both GHCR and Docker Hub
   # ─────────────────────────────────────────────
   docker-linux:
     needs: test
@@ -59,21 +61,60 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request' && vars.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata for GHCR
+        id: meta-ghcr
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
             type=sha
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+
+      - name: Extract metadata for Docker Hub
+        id: meta-dockerhub
+        if: vars.DOCKERHUB_USERNAME != ''
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_REGISTRY }}/${{ vars.DOCKERHUB_USERNAME }}/docx-mcp
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+
+      - name: Combine tags
+        id: tags
+        run: |
+          GHCR_TAGS="${{ steps.meta-ghcr.outputs.tags }}"
+          DOCKERHUB_TAGS="${{ steps.meta-dockerhub.outputs.tags }}"
+          if [ -n "$DOCKERHUB_TAGS" ]; then
+            ALL_TAGS=$(printf "%s\n%s" "$GHCR_TAGS" "$DOCKERHUB_TAGS")
+          else
+            ALL_TAGS="$GHCR_TAGS"
+          fi
+          # Convert newlines to comma for docker build-push-action
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "$ALL_TAGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Build and push (linux/amd64, linux/arm64)
         uses: docker/build-push-action@v6
@@ -81,8 +122,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.meta-ghcr.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -155,3 +196,43 @@ jobs:
         with:
           name: docx-mcp-macos-${{ matrix.arch }}
           path: dist/macos-${{ matrix.arch }}/docx-mcp
+
+  # ─────────────────────────────────────────────
+  # Create GitHub Release on version tags
+  # ─────────────────────────────────────────────
+  release:
+    needs: [docker-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          # Package each platform
+          for dir in artifacts/docx-mcp-*; do
+            name=$(basename "$dir")
+            if [[ "$name" == *windows* ]]; then
+              zip -j "release/${name}.zip" "$dir"/*
+            else
+              tar -czvf "release/${name}.tar.gz" -C "$dir" .
+            fi
+          done
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
