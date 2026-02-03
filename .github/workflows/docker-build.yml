@@ -329,7 +329,7 @@ jobs:
   release:
     name: Create Release
     needs: [docker-linux, installer-windows, installer-macos]
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
