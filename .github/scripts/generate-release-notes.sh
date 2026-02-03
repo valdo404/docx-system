@@ -18,11 +18,11 @@ Download and run the \`.exe\` installer for your architecture.
 > **Note**: Windows SmartScreen may show a warning for unsigned binaries. Click "More info" → "Run anyway".
 
 #### macOS
-Download and run the \`.pkg\` installer for your architecture.
+Download the \`.dmg\` for your architecture, open it, and run the installer.
 
-> **Note**: macOS may block unsigned packages. Right-click → Open, or run:
+> **Note**: macOS may block unsigned installers. Right-click → Open, or run:
 > \`\`\`bash
-> xattr -cr docx-mcp-*.pkg
+> xattr -cr docx-mcp-*.dmg
 > \`\`\`
 
 #### Linux / Docker

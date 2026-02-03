@@ -208,7 +208,7 @@ jobs:
           path: dist/installers/*.exe
 
   # =============================================================================
-  # macOS Installer (PKG)
+  # macOS Installer (DMG)
   # =============================================================================
   installer-macos:
     name: macOS Installer ${{ matrix.arch }}
@@ -312,16 +312,25 @@ jobs:
           chmod +x installers/macos/build-pkg.sh
           ./installers/macos/build-pkg.sh
 
+      - name: Build DMG installer
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          ARCH: ${{ matrix.arch }}
+          SIGNING_IDENTITY: ${{ env.APP_SIGNING_IDENTITY }}
+        run: |
+          chmod +x installers/macos/build-dmg.sh
+          ./installers/macos/build-dmg.sh
+
       - name: Cleanup keychain
         if: ${{ always() && env.KEYCHAIN_PATH != '' }}
         run: |
           security delete-keychain $KEYCHAIN_PATH || true
 
-      - name: Upload PKG installer
+      - name: Upload DMG installer
         uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch }}-pkg
-          path: dist/installers/*.pkg
+          name: macos-${{ matrix.arch }}-dmg
+          path: dist/installers/*.dmg
 
   # =============================================================================
   # Create GitHub Release

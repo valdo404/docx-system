@@ -14,11 +14,11 @@ for arch in x64 arm64; do
     fi
 done
 
-# macOS installers
+# macOS installers (DMG)
 for arch in x64 arm64; do
-    if [[ -d "artifacts/macos-${arch}-pkg" ]]; then
-        echo "Copying macOS $arch installer..."
-        cp artifacts/macos-${arch}-pkg/*.pkg release-assets/ 2>/dev/null || true
+    if [[ -d "artifacts/macos-${arch}-dmg" ]]; then
+        echo "Copying macOS $arch DMG..."
+        cp artifacts/macos-${arch}-dmg/*.dmg release-assets/ 2>/dev/null || true
     fi
 done
 
