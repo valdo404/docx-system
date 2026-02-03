@@ -1,27 +1,29 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
-using DocxMcp.Helpers;
 
 namespace DocxMcp.Diff;
 
 /// <summary>
 /// Captures the state of an element for comparison.
+/// Does NOT rely on element IDs - uses content-based fingerprinting.
 /// </summary>
 public sealed class ElementSnapshot
 {
     /// <summary>
-    /// Stable element ID (dmcp:id or w14:paraId).
+    /// Content-based fingerprint for matching elements across documents.
     /// </summary>
-    public required string Id { get; init; }
+    public required string Fingerprint { get; init; }
 
     /// <summary>
-    /// Type of element (paragraph, table, row, cell, run, etc.).
+    /// Type of element (paragraph, table, heading, etc.).
     /// </summary>
     public required string ElementType { get; init; }
 
     /// <summary>
-    /// Position in the parent's children list.
+    /// Position index in the parent's children list.
     /// </summary>
     public required int Index { get; init; }
 
@@ -29,11 +31,6 @@ public sealed class ElementSnapshot
     /// Path to this element in the document structure.
     /// </summary>
     public required string Path { get; init; }
-
-    /// <summary>
-    /// Parent element ID (null for top-level body children).
-    /// </summary>
-    public string? ParentId { get; init; }
 
     /// <summary>
     /// Plain text content of the element.
@@ -51,7 +48,7 @@ public sealed class ElementSnapshot
     public required JsonObject JsonValue { get; init; }
 
     /// <summary>
-    /// Original OpenXML element reference (for advanced operations).
+    /// Original OpenXML element reference.
     /// </summary>
     public OpenXmlElement? Element { get; init; }
 
@@ -61,25 +58,31 @@ public sealed class ElementSnapshot
     public List<ElementSnapshot> Children { get; init; } = [];
 
     /// <summary>
+    /// Heading level (1-9) if this is a heading, null otherwise.
+    /// </summary>
+    public int? HeadingLevel { get; init; }
+
+    /// <summary>
     /// Create a snapshot from an OpenXML element.
     /// </summary>
-    public static ElementSnapshot FromElement(OpenXmlElement element, int index, string parentPath, string? parentId = null)
+    public static ElementSnapshot FromElement(OpenXmlElement element, int index, string parentPath)
     {
-        var id = ElementIdManager.GetId(element);
         var elementType = GetElementTypeName(element);
-        var path = BuildPath(parentPath, elementType, index, id);
+        var text = element.InnerText;
+        var path = $"{parentPath}/{elementType}[{index}]";
+        var headingLevel = GetHeadingLevel(element);
 
         var snapshot = new ElementSnapshot
         {
-            Id = id ?? $"_anon_{index}_{Guid.NewGuid():N}"[..16],
+            Fingerprint = ComputeFingerprint(element, elementType, text),
             ElementType = elementType,
             Index = index,
             Path = path,
-            ParentId = parentId,
-            Text = element.InnerText,
+            Text = text,
             OuterXml = element.OuterXml,
             JsonValue = ElementToJsonObject(element),
-            Element = element
+            Element = element,
+            HeadingLevel = headingLevel
         };
 
         // Capture children for hierarchical elements
@@ -88,7 +91,7 @@ public sealed class ElementSnapshot
             int rowIdx = 0;
             foreach (var row in table.Elements<TableRow>())
             {
-                snapshot.Children.Add(FromElement(row, rowIdx++, path, snapshot.Id));
+                snapshot.Children.Add(FromElement(row, rowIdx++, path));
             }
         }
         else if (element is TableRow row)
@@ -96,7 +99,7 @@ public sealed class ElementSnapshot
             int cellIdx = 0;
             foreach (var cell in row.Elements<TableCell>())
             {
-                snapshot.Children.Add(FromElement(cell, cellIdx++, path, snapshot.Id));
+                snapshot.Children.Add(FromElement(cell, cellIdx++, path));
             }
         }
         else if (element is Paragraph para)
@@ -104,7 +107,7 @@ public sealed class ElementSnapshot
             int runIdx = 0;
             foreach (var run in para.Elements<Run>())
             {
-                snapshot.Children.Add(FromElement(run, runIdx++, path, snapshot.Id));
+                snapshot.Children.Add(FromElement(run, runIdx++, path));
             }
         }
 
@@ -112,34 +115,147 @@ public sealed class ElementSnapshot
     }
 
     /// <summary>
-    /// Check if content has changed (ignoring position).
+    /// Compute a content-based fingerprint that doesn't depend on IDs.
+    /// Two elements with the same content will have the same fingerprint.
+    /// </summary>
+    private static string ComputeFingerprint(OpenXmlElement element, string elementType, string text)
+    {
+        var sb = new StringBuilder();
+        sb.Append(elementType);
+        sb.Append('|');
+
+        // For headings, include the level
+        if (element is Paragraph p && GetHeadingLevel(element) is int level)
+        {
+            sb.Append($"h{level}|");
+        }
+
+        // Include normalized text content
+        sb.Append(NormalizeText(text));
+
+        // For tables, include structure info
+        if (element is Table table)
+        {
+            var rows = table.Elements<TableRow>().ToList();
+            sb.Append($"|rows:{rows.Count}");
+            if (rows.Count > 0)
+            {
+                var cols = rows[0].Elements<TableCell>().Count();
+                sb.Append($"|cols:{cols}");
+            }
+        }
+
+        // Compute hash
+        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash)[..16].ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Normalize text for comparison (trim, collapse whitespace).
+    /// </summary>
+    private static string NormalizeText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return "";
+
+        // Collapse multiple whitespace to single space
+        var normalized = string.Join(' ', text.Split(default(char[]), StringSplitOptions.RemoveEmptyEntries));
+        return normalized.Trim();
+    }
+
+    /// <summary>
+    /// Check if two snapshots have equivalent content.
     /// </summary>
     public bool ContentEquals(ElementSnapshot other)
     {
-        // First compare text (fast path)
-        if (Text != other.Text)
+        // Different types = not equal
+        if (ElementType != other.ElementType)
             return false;
 
-        // For runs, compare style properties too
-        if (ElementType == "run" && other.ElementType == "run")
-        {
-            return CompareRunContent(this, other);
-        }
+        // Compare normalized text
+        if (NormalizeText(Text) != NormalizeText(other.Text))
+            return false;
 
-        // For paragraphs, compare structure
-        if (ElementType == "paragraph" && other.ElementType == "paragraph")
+        // For paragraphs, compare run structure
+        if (ElementType == "paragraph" || ElementType == "heading")
         {
             return CompareParagraphContent(this, other);
         }
 
-        // For tables, compare structure
-        if (ElementType == "table" && other.ElementType == "table")
+        // For tables, compare cell contents
+        if (ElementType == "table")
         {
             return CompareTableContent(this, other);
         }
 
-        // Fallback to XML comparison (slower but thorough)
-        return OuterXml == other.OuterXml;
+        // For runs, compare styling
+        if (ElementType == "run")
+        {
+            return CompareRunContent(this, other);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Compute a similarity score between 0 and 1.
+    /// Used for fuzzy matching when fingerprints don't match exactly.
+    /// </summary>
+    public double SimilarityTo(ElementSnapshot other)
+    {
+        // Different types = no similarity
+        if (ElementType != other.ElementType)
+            return 0.0;
+
+        // Same fingerprint = identical
+        if (Fingerprint == other.Fingerprint)
+            return 1.0;
+
+        // Compute text similarity using Levenshtein ratio
+        var textSim = ComputeTextSimilarity(NormalizeText(Text), NormalizeText(other.Text));
+
+        // For tables, also consider structure
+        if (ElementType == "table")
+        {
+            var structureSim = CompareTableStructure(this, other);
+            return (textSim + structureSim) / 2.0;
+        }
+
+        return textSim;
+    }
+
+    private static double ComputeTextSimilarity(string a, string b)
+    {
+        if (a == b) return 1.0;
+        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return 0.0;
+
+        var maxLen = Math.Max(a.Length, b.Length);
+        var distance = LevenshteinDistance(a, b);
+        return 1.0 - (double)distance / maxLen;
+    }
+
+    private static int LevenshteinDistance(string a, string b)
+    {
+        var n = a.Length;
+        var m = b.Length;
+        var d = new int[n + 1, m + 1];
+
+        for (var i = 0; i <= n; i++) d[i, 0] = i;
+        for (var j = 0; j <= m; j++) d[0, j] = j;
+
+        for (var i = 1; i <= n; i++)
+        {
+            for (var j = 1; j <= m; j++)
+            {
+                var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                d[i, j] = Math.Min(
+                    Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1),
+                    d[i - 1, j - 1] + cost);
+            }
+        }
+
+        return d[n, m];
     }
 
     private static bool CompareRunContent(ElementSnapshot a, ElementSnapshot b)
@@ -157,7 +273,7 @@ public sealed class ElementSnapshot
         var bTab = bJson["tab"]?.GetValue<bool>() ?? false;
         if (aTab != bTab) return false;
 
-        // Compare style
+        // Compare style (if both have styles)
         var aStyle = aJson["style"]?.AsObject();
         var bStyle = bJson["style"]?.AsObject();
 
@@ -206,15 +322,30 @@ public sealed class ElementSnapshot
             if (rowA.Children.Count != rowB.Children.Count)
                 return false;
 
-            // Compare each cell
+            // Compare each cell's text
             for (int j = 0; j < rowA.Children.Count; j++)
             {
-                if (!rowA.Children[j].ContentEquals(rowB.Children[j]))
+                if (NormalizeText(rowA.Children[j].Text) != NormalizeText(rowB.Children[j].Text))
                     return false;
             }
         }
 
         return true;
+    }
+
+    private static double CompareTableStructure(ElementSnapshot a, ElementSnapshot b)
+    {
+        if (a.Children.Count == 0 && b.Children.Count == 0) return 1.0;
+        if (a.Children.Count == 0 || b.Children.Count == 0) return 0.0;
+
+        var rowSim = 1.0 - Math.Abs(a.Children.Count - b.Children.Count) / (double)Math.Max(a.Children.Count, b.Children.Count);
+
+        var aColCount = a.Children[0].Children.Count;
+        var bColCount = b.Children[0].Children.Count;
+        var colSim = aColCount == 0 && bColCount == 0 ? 1.0 :
+            1.0 - Math.Abs(aColCount - bColCount) / (double)Math.Max(aColCount, bColCount);
+
+        return (rowSim + colSim) / 2.0;
     }
 
     private static bool JsonObjectEquals(JsonObject a, JsonObject b)
@@ -238,7 +369,7 @@ public sealed class ElementSnapshot
 
     private static string GetElementTypeName(OpenXmlElement element) => element switch
     {
-        Paragraph p when IsHeading(p) => "heading",
+        Paragraph p when GetHeadingLevel(p) is not null => "heading",
         Paragraph => "paragraph",
         Table => "table",
         TableRow => "row",
@@ -249,30 +380,36 @@ public sealed class ElementSnapshot
         _ => element.LocalName
     };
 
-    private static bool IsHeading(Paragraph p)
+    private static int? GetHeadingLevel(OpenXmlElement element)
     {
-        var styleId = p.ParagraphProperties?.ParagraphStyleId?.Val?.Value;
-        return styleId is not null && styleId.StartsWith("Heading", StringComparison.OrdinalIgnoreCase);
-    }
+        if (element is not Paragraph p) return null;
 
-    private static string BuildPath(string parentPath, string elementType, int index, string? id)
-    {
-        var selector = id is not null ? $"[id='{id}']" : $"[{index}]";
-        return $"{parentPath}/{elementType}{selector}";
+        var styleId = p.ParagraphProperties?.ParagraphStyleId?.Val?.Value;
+        if (styleId is null) return null;
+
+        if (styleId.StartsWith("Heading", StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(styleId.AsSpan(7), out var level))
+        {
+            return level;
+        }
+
+        // Also check for "Titre" (French) or numbered styles
+        if (styleId.StartsWith("Titre", StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(styleId.AsSpan(5), out level))
+        {
+            return level;
+        }
+
+        return null;
     }
 
     private static JsonObject ElementToJsonObject(OpenXmlElement element)
     {
         var result = new JsonObject
         {
-            ["type"] = GetElementTypeName(element)
+            ["type"] = GetElementTypeName(element),
+            ["text"] = element.InnerText
         };
-
-        var id = ElementIdManager.GetId(element);
-        if (id is not null)
-            result["id"] = id;
-
-        result["text"] = element.InnerText;
 
         switch (element)
         {
@@ -298,12 +435,10 @@ public sealed class ElementSnapshot
 
     private static void PopulateParagraphJson(Paragraph p, JsonObject result)
     {
-        if (IsHeading(p))
+        if (GetHeadingLevel(p) is int level)
         {
             result["type"] = "heading";
-            var styleId = p.ParagraphProperties?.ParagraphStyleId?.Val?.Value;
-            if (styleId is not null && int.TryParse(styleId.Replace("Heading", ""), out var level))
-                result["level"] = level;
+            result["level"] = level;
         }
 
         // Paragraph properties
@@ -318,9 +453,10 @@ public sealed class ElementSnapshot
                 hasProps = true;
             }
 
-            if (pp.ParagraphStyleId?.Val?.Value is string style && !style.StartsWith("Heading"))
+            var styleId = pp.ParagraphStyleId?.Val?.Value;
+            if (styleId is not null && !styleId.StartsWith("Heading") && !styleId.StartsWith("Titre"))
             {
-                props["style"] = style;
+                props["style"] = styleId;
                 hasProps = true;
             }
 
@@ -348,11 +484,25 @@ public sealed class ElementSnapshot
 
         if (rows.Count > 0)
         {
-            var cols = rows[0].Elements<TableCell>().Count();
-            result["col_count"] = cols;
+            result["col_count"] = rows[0].Elements<TableCell>().Count();
+
+            // Capture all rows with their cells
+            var rowsArr = new JsonArray();
+            foreach (var row in rows)
+            {
+                var rowObj = new JsonObject();
+                var cellsArr = new JsonArray();
+                foreach (var cell in row.Elements<TableCell>())
+                {
+                    cellsArr.Add(cell.InnerText);
+                }
+                rowObj["cells"] = cellsArr;
+                rowsArr.Add(rowObj);
+            }
+            result["rows"] = rowsArr;
         }
 
-        // Table properties
+        // Table style
         var tblProps = t.GetFirstChild<TableProperties>();
         if (tblProps?.TableStyle?.Val?.Value is string style)
         {
@@ -449,10 +599,6 @@ public sealed class ElementSnapshot
     private static JsonObject RunToJsonObject(Run r)
     {
         var result = new JsonObject();
-
-        var id = ElementIdManager.GetId(r);
-        if (id is not null)
-            result["id"] = id;
 
         // Check for tab
         if (r.GetFirstChild<TabChar>() is not null)
