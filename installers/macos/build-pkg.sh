@@ -307,22 +307,27 @@ cat > "${RESOURCES_DIR}/conclusion.html" <<EOF
 <head>
     <meta charset="UTF-8">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; }
         h1 { color: #34a853; }
-        code { background: #f1f3f4; padding: 2px 6px; border-radius: 4px; }
-        .box { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; margin: 15px 0; }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-family: 'SF Mono', Menlo, Monaco, monospace;
+            font-size: 13px;
+            overflow-x: auto;
+        }
     </style>
 </head>
 <body>
     <h1>Installation Complete</h1>
     <p>DocX MCP Server has been installed successfully!</p>
 
-    <div class="box">
-        <p><strong>Quick Start:</strong></p>
-        <p>Open Terminal and run:</p>
-        <p><code>docx-mcp --help</code></p>
-        <p><code>docx-cli --help</code></p>
-    </div>
+    <p><strong>Quick Start:</strong></p>
+    <p>Open Terminal and run:</p>
+    <pre>docx-mcp --help
+docx-cli --help</pre>
 
     <p>For documentation and updates, visit:</p>
     <p><a href="https://github.com/valdo404/docx-mcp">https://github.com/valdo404/docx-mcp</a></p>

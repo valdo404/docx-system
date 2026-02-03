@@ -176,7 +176,11 @@ hdiutil create -srcfolder "${DMG_CONTENT}" \
 
 # Mount and customize
 log "Customizing DMG appearance..."
-MOUNT_POINT=$(hdiutil attach -readwrite -noverify "${TEMP_DMG}" | grep "/Volumes/" | tail -1 | awk '{print $3}')
+hdiutil attach -readwrite -noverify "${TEMP_DMG}"
+MOUNT_POINT="/Volumes/${VOLUME_NAME}"
+
+# Wait for mount
+sleep 2
 
 # Set DMG window properties using AppleScript
 osascript <<EOF
