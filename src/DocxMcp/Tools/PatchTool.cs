@@ -11,47 +11,15 @@ using static DocxMcp.Helpers.ElementIdManager;
 
 namespace DocxMcp.Tools;
 
-[McpServerToolType]
+/// <summary>
+/// Internal patch engine used by element tools.
+/// Not exposed as an MCP tool - use individual element tools instead.
+/// </summary>
 public sealed class PatchTool
 {
-
-    [McpServerTool(Name = "apply_patch"), Description(
-        "Modify a document using JSON patches (RFC 6902 adapted for OOXML).\n" +
-        "Maximum 10 operations per call. Split larger changes into multiple calls.\n" +
-        "Returns structured JSON with operation results and element IDs.\n\n" +
-        "Parameters:\n" +
-        "  dry_run — If true, simulates operations without applying changes.\n\n" +
-        "Operations:\n" +
-        "  add — Insert element at path. Use /body/children/N for positional insert.\n" +
-        "        Result: {created_id: \"...\"}\n" +
-        "  replace — Replace element or property at path.\n" +
-        "        Result: {replaced_id: \"...\"}\n" +
-        "  remove — Delete element at path.\n" +
-        "        Result: {removed_id: \"...\"}\n" +
-        "  move — Move element from one location to another.\n" +
-        "        Result: {moved_id: \"...\", from: \"...\"}\n" +
-        "  copy — Duplicate element to another location.\n" +
-        "        Result: {source_id: \"...\", copy_id: \"...\"}\n" +
-        "  replace_text — Find/replace text preserving run-level formatting.\n" +
-        "        Options: max_count (default 1, use 0 to skip, higher values for multiple)\n" +
-        "        Note: 'replace' cannot be empty (use remove operation instead)\n" +
-        "        Result: {matches_found: N, replacements_made: N}\n" +
-        "  remove_column — Remove a column from a table by index.\n" +
-        "        Result: {column_index: N, rows_affected: N}\n\n" +
-        "Paths support stable element IDs (preferred over indices for existing content):\n" +
-        "  /body/paragraph[id='1A2B3C4D'] — target paragraph by ID\n" +
-        "  /body/table[id='5E6F7A8B']/row[id='AABB1122'] — target row by ID\n\n" +
-        "Value types (for add/replace):\n" +
-        "  Paragraph with runs (preserves styling):\n" +
-        "    {\"type\": \"paragraph\", \"runs\": [{\"text\": \"bold\", \"style\": {\"bold\": true}}, {\"tab\": true}, {\"text\": \"normal\"}]}\n" +
-        "  Heading with runs:\n" +
-        "    {\"type\": \"heading\", \"level\": 2, \"runs\": [{\"text\": \"Title\"}]}\n" +
-        "  Table:\n" +
-        "    {\"type\": \"table\", \"headers\": [\"Col1\",\"Col2\"], \"rows\": [[\"A\",\"B\"]]}\n\n" +
-        "replace_text example:\n" +
-        "  {\"op\": \"replace_text\", \"path\": \"/body/paragraph[0]\", \"find\": \"old\", \"replace\": \"new\", \"max_count\": 1}\n\n" +
-        "Response format:\n" +
-        "  {\"success\": true, \"applied\": 2, \"total\": 2, \"operations\": [...]}")]
+    /// <summary>
+    /// Apply JSON patches to a document. Used internally by element tools and CLI.
+    /// </summary>
     public static string ApplyPatch(
         SessionManager sessions,
         [Description("Session ID of the document.")] string doc_id,

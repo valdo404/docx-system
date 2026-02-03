@@ -41,8 +41,6 @@ builder.Services
     .WithTools<ElementTools>()
     .WithTools<TextTools>()
     .WithTools<TableTools>()
-    // Generic patch (multi-operation)
-    .WithTools<PatchTool>()
     // Export, history, comments, styles
     .WithTools<ExportTools>()
     .WithTools<HistoryTools>()
