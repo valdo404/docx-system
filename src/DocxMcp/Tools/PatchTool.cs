@@ -14,6 +14,11 @@ namespace DocxMcp.Tools;
 [McpServerToolType]
 public sealed class PatchTool
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     [McpServerTool(Name = "apply_patch"), Description(
         "Modify a document using JSON patches (RFC 6902 adapted for OOXML).\n" +
         "Maximum 10 operations per call. Split larger changes into multiple calls.\n" +
@@ -104,41 +109,39 @@ public sealed class PatchTool
 
         var succeededPatches = new List<string>();
 
-        foreach (var patch in patchArray.EnumerateArray())
+        foreach (var patchElement in patchArray.EnumerateArray())
         {
-            var op = patch.TryGetProperty("op", out var opEl) ? opEl.GetString()?.ToLowerInvariant() : null;
-            var pathStr = patch.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
-
             PatchOperationResult opResult;
+            PatchOperation? operation = null;
 
             try
             {
-                if (op is null)
-                    throw new ArgumentException("Patch must have an 'op' field.");
+                // Deserialize to typed operation
+                operation = JsonSerializer.Deserialize<PatchOperation>(patchElement.GetRawText(), JsonOptions);
+                if (operation is null)
+                    throw new ArgumentException("Failed to parse patch operation.");
 
-                opResult = op switch
+                // Validate the operation
+                operation.Validate();
+
+                // Execute based on type
+                opResult = operation switch
                 {
-                    "add" => ExecuteAdd(patch, wpDoc, mainPart, pathStr, dry_run),
-                    "replace" => ExecuteReplace(patch, wpDoc, mainPart, pathStr, dry_run),
-                    "remove" => ExecuteRemove(patch, wpDoc, pathStr, dry_run),
-                    "move" => ExecuteMove(patch, wpDoc, pathStr, dry_run),
-                    "copy" => ExecuteCopy(patch, wpDoc, pathStr, dry_run),
-                    "replace_text" => ExecuteReplaceText(patch, wpDoc, pathStr, dry_run),
-                    "remove_column" => ExecuteRemoveColumn(patch, wpDoc, pathStr, dry_run),
-                    _ => new UnknownOperationResult
-                    {
-                        Path = pathStr,
-                        Status = dry_run ? "would_fail" : "error",
-                        Error = $"Unknown operation: '{op}'",
-                        UnknownOp = op
-                    }
+                    AddPatchOperation add => ExecuteAdd(add, wpDoc, mainPart, dry_run),
+                    ReplacePatchOperation replace => ExecuteReplace(replace, wpDoc, mainPart, dry_run),
+                    RemovePatchOperation remove => ExecuteRemove(remove, wpDoc, dry_run),
+                    MovePatchOperation move => ExecuteMove(move, wpDoc, dry_run),
+                    CopyPatchOperation copy => ExecuteCopy(copy, wpDoc, dry_run),
+                    ReplaceTextPatchOperation replaceText => ExecuteReplaceText(replaceText, wpDoc, dry_run),
+                    RemoveColumnPatchOperation removeColumn => ExecuteRemoveColumn(removeColumn, wpDoc, dry_run),
+                    _ => throw new ArgumentException($"Unknown operation type: {operation.GetType().Name}")
                 };
 
                 if (opResult.Status is "success" or "would_succeed")
                 {
                     if (!dry_run)
                     {
-                        succeededPatches.Add(patch.GetRawText());
+                        succeededPatches.Add(patchElement.GetRawText());
                         result.Applied++;
                     }
                     else
@@ -147,9 +150,17 @@ public sealed class PatchTool
                     }
                 }
             }
+            catch (JsonException ex)
+            {
+                var pathStr = patchElement.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
+                var opStr = patchElement.TryGetProperty("op", out var o) ? o.GetString() ?? "unknown" : "unknown";
+                opResult = CreateErrorResult(opStr, pathStr, $"Invalid patch format: {ex.Message}", dry_run);
+            }
             catch (Exception ex)
             {
-                opResult = CreateErrorResult(op ?? "unknown", pathStr, ex.Message, dry_run);
+                var pathStr = operation?.Path ?? (patchElement.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "");
+                var opStr = GetOpString(operation, patchElement);
+                opResult = CreateErrorResult(opStr, pathStr, ex.Message, dry_run);
             }
 
             result.Operations.Add(opResult);
@@ -173,6 +184,25 @@ public sealed class PatchTool
         return result.ToJson();
     }
 
+    private static string GetOpString(PatchOperation? operation, JsonElement element)
+    {
+        if (operation is not null)
+        {
+            return operation switch
+            {
+                AddPatchOperation => "add",
+                ReplacePatchOperation => "replace",
+                RemovePatchOperation => "remove",
+                MovePatchOperation => "move",
+                CopyPatchOperation => "copy",
+                ReplaceTextPatchOperation => "replace_text",
+                RemoveColumnPatchOperation => "remove_column",
+                _ => "unknown"
+            };
+        }
+        return element.TryGetProperty("op", out var o) ? o.GetString() ?? "unknown" : "unknown";
+    }
+
     private static PatchOperationResult CreateErrorResult(string op, string path, string error, bool dryRun)
     {
         var status = dryRun ? "would_fail" : "error";
@@ -192,53 +222,51 @@ public sealed class PatchTool
     // Replay methods for WAL (kept for backwards compatibility)
     internal static void ReplayAdd(JsonElement patch, WordprocessingDocument wpDoc, MainDocumentPart mainPart)
     {
-        var pathStr = patch.GetProperty("path").GetString() ?? "";
-        ExecuteAdd(patch, wpDoc, mainPart, pathStr, false);
+        var op = JsonSerializer.Deserialize<AddPatchOperation>(patch.GetRawText(), JsonOptions)!;
+        ExecuteAdd(op, wpDoc, mainPart, false);
     }
 
     internal static void ReplayReplace(JsonElement patch, WordprocessingDocument wpDoc, MainDocumentPart mainPart)
     {
-        var pathStr = patch.GetProperty("path").GetString() ?? "";
-        ExecuteReplace(patch, wpDoc, mainPart, pathStr, false);
+        var op = JsonSerializer.Deserialize<ReplacePatchOperation>(patch.GetRawText(), JsonOptions)!;
+        ExecuteReplace(op, wpDoc, mainPart, false);
     }
 
     internal static void ReplayRemove(JsonElement patch, WordprocessingDocument wpDoc)
     {
-        var pathStr = patch.GetProperty("path").GetString() ?? "";
-        ExecuteRemove(patch, wpDoc, pathStr, false);
+        var op = JsonSerializer.Deserialize<RemovePatchOperation>(patch.GetRawText(), JsonOptions)!;
+        ExecuteRemove(op, wpDoc, false);
     }
 
     internal static void ReplayMove(JsonElement patch, WordprocessingDocument wpDoc)
     {
-        var pathStr = patch.GetProperty("path").GetString() ?? "";
-        ExecuteMove(patch, wpDoc, pathStr, false);
+        var op = JsonSerializer.Deserialize<MovePatchOperation>(patch.GetRawText(), JsonOptions)!;
+        ExecuteMove(op, wpDoc, false);
     }
 
     internal static void ReplayCopy(JsonElement patch, WordprocessingDocument wpDoc)
     {
-        var pathStr = patch.GetProperty("path").GetString() ?? "";
-        ExecuteCopy(patch, wpDoc, pathStr, false);
+        var op = JsonSerializer.Deserialize<CopyPatchOperation>(patch.GetRawText(), JsonOptions)!;
+        ExecuteCopy(op, wpDoc, false);
     }
 
     internal static void ReplayReplaceText(JsonElement patch, WordprocessingDocument wpDoc)
     {
-        var pathStr = patch.GetProperty("path").GetString() ?? "";
-        ExecuteReplaceText(patch, wpDoc, pathStr, false);
+        var op = JsonSerializer.Deserialize<ReplaceTextPatchOperation>(patch.GetRawText(), JsonOptions)!;
+        ExecuteReplaceText(op, wpDoc, false);
     }
 
     internal static void ReplayRemoveColumn(JsonElement patch, WordprocessingDocument wpDoc)
     {
-        var pathStr = patch.GetProperty("path").GetString() ?? "";
-        ExecuteRemoveColumn(patch, wpDoc, pathStr, false);
+        var op = JsonSerializer.Deserialize<RemoveColumnPatchOperation>(patch.GetRawText(), JsonOptions)!;
+        ExecuteRemoveColumn(op, wpDoc, false);
     }
 
-    private static AddOperationResult ExecuteAdd(JsonElement patch, WordprocessingDocument wpDoc,
-        MainDocumentPart mainPart, string pathStr, bool dryRun)
+    private static AddOperationResult ExecuteAdd(AddPatchOperation op, WordprocessingDocument wpDoc,
+        MainDocumentPart mainPart, bool dryRun)
     {
-        var result = new AddOperationResult { Path = pathStr };
-
-        var value = patch.GetProperty("value");
-        var path = DocxPath.Parse(pathStr);
+        var result = new AddOperationResult { Path = op.Path };
+        var path = DocxPath.Parse(op.Path);
 
         if (dryRun)
         {
@@ -264,9 +292,9 @@ public sealed class PatchTool
         {
             var (parent, index) = PathResolver.ResolveForInsert(path, wpDoc);
 
-            if (value.TryGetProperty("type", out var typeEl) && typeEl.GetString() == "list")
+            if (op.Value.TryGetProperty("type", out var typeEl) && typeEl.GetString() == "list")
             {
-                var items = ElementFactory.CreateListItems(value);
+                var items = ElementFactory.CreateListItems(op.Value);
                 for (int i = items.Count - 1; i >= 0; i--)
                 {
                     parent.InsertChildAt(items[i], index);
@@ -275,7 +303,7 @@ public sealed class PatchTool
             }
             else
             {
-                var element = ElementFactory.CreateFromJson(value, mainPart);
+                var element = ElementFactory.CreateFromJson(op.Value, mainPart);
                 parent.InsertChildAt(element, index);
                 createdElement = element;
             }
@@ -290,16 +318,16 @@ public sealed class PatchTool
 
             var parent = parents[0];
 
-            if (value.TryGetProperty("type", out var t) && t.GetString() == "list")
+            if (op.Value.TryGetProperty("type", out var t) && t.GetString() == "list")
             {
-                var items = ElementFactory.CreateListItems(value);
+                var items = ElementFactory.CreateListItems(op.Value);
                 foreach (var item in items)
                     parent.AppendChild(item);
                 createdElement = items.FirstOrDefault();
             }
             else
             {
-                var element = ElementFactory.CreateFromJson(value, mainPart);
+                var element = ElementFactory.CreateFromJson(op.Value, mainPart);
                 parent.AppendChild(element);
                 createdElement = element;
             }
@@ -310,17 +338,15 @@ public sealed class PatchTool
         return result;
     }
 
-    private static ReplaceOperationResult ExecuteReplace(JsonElement patch, WordprocessingDocument wpDoc,
-        MainDocumentPart mainPart, string pathStr, bool dryRun)
+    private static ReplaceOperationResult ExecuteReplace(ReplacePatchOperation op, WordprocessingDocument wpDoc,
+        MainDocumentPart mainPart, bool dryRun)
     {
-        var result = new ReplaceOperationResult { Path = pathStr };
-
-        var value = patch.GetProperty("value");
-        var path = DocxPath.Parse(pathStr);
+        var result = new ReplaceOperationResult { Path = op.Path };
+        var path = DocxPath.Parse(op.Path);
         var targets = PathResolver.Resolve(path, wpDoc);
 
         if (targets.Count == 0)
-            throw new InvalidOperationException($"No elements found at path '{pathStr}'.");
+            throw new InvalidOperationException($"No elements found at path '{op.Path}'.");
 
         if (dryRun)
         {
@@ -339,17 +365,17 @@ public sealed class PatchTool
 
                 if (target is ParagraphProperties)
                 {
-                    var newProps = ElementFactory.CreateParagraphProperties(value);
+                    var newProps = ElementFactory.CreateParagraphProperties(op.Value);
                     target.Parent?.ReplaceChild(newProps, target);
                 }
                 else if (target is RunProperties)
                 {
-                    var newProps = ElementFactory.CreateRunProperties(value);
+                    var newProps = ElementFactory.CreateRunProperties(op.Value);
                     target.Parent?.ReplaceChild(newProps, target);
                 }
                 else if (target is TableProperties)
                 {
-                    var newProps = ElementFactory.CreateTableProperties(value);
+                    var newProps = ElementFactory.CreateTableProperties(op.Value);
                     target.Parent?.ReplaceChild(newProps, target);
                 }
             }
@@ -363,7 +389,7 @@ public sealed class PatchTool
                 var parent = target.Parent
                     ?? throw new InvalidOperationException("Target element has no parent.");
 
-                var newElement = ElementFactory.CreateFromJson(value, mainPart);
+                var newElement = ElementFactory.CreateFromJson(op.Value, mainPart);
                 parent.ReplaceChild(newElement, target);
             }
         }
@@ -373,16 +399,14 @@ public sealed class PatchTool
         return result;
     }
 
-    private static RemoveOperationResult ExecuteRemove(JsonElement patch, WordprocessingDocument wpDoc,
-        string pathStr, bool dryRun)
+    private static RemoveOperationResult ExecuteRemove(RemovePatchOperation op, WordprocessingDocument wpDoc, bool dryRun)
     {
-        var result = new RemoveOperationResult { Path = pathStr };
-
-        var path = DocxPath.Parse(pathStr);
+        var result = new RemoveOperationResult { Path = op.Path };
+        var path = DocxPath.Parse(op.Path);
         var targets = PathResolver.Resolve(path, wpDoc);
 
         if (targets.Count == 0)
-            throw new InvalidOperationException($"No elements found at path '{pathStr}'.");
+            throw new InvalidOperationException($"No elements found at path '{op.Path}'.");
 
         var removedId = GetId(targets[0]);
 
@@ -403,15 +427,11 @@ public sealed class PatchTool
         return result;
     }
 
-    private static MoveOperationResult ExecuteMove(JsonElement patch, WordprocessingDocument wpDoc,
-        string pathStr, bool dryRun)
+    private static MoveOperationResult ExecuteMove(MovePatchOperation op, WordprocessingDocument wpDoc, bool dryRun)
     {
-        var fromStr = patch.GetProperty("from").GetString()
-            ?? throw new ArgumentException("Move patch must have a 'from' field.");
+        var result = new MoveOperationResult { Path = op.Path, From = op.From };
 
-        var result = new MoveOperationResult { Path = pathStr, From = fromStr };
-
-        var fromPath = DocxPath.Parse(fromStr);
+        var fromPath = DocxPath.Parse(op.From);
         var sources = PathResolver.Resolve(fromPath, wpDoc);
         if (sources.Count != 1)
             throw new InvalidOperationException("Move source must resolve to exactly one element.");
@@ -422,7 +442,7 @@ public sealed class PatchTool
         if (dryRun)
         {
             // Validate destination
-            var toPath = DocxPath.Parse(pathStr);
+            var toPath = DocxPath.Parse(op.Path);
             if (toPath.IsChildrenPath)
             {
                 PathResolver.ResolveForInsert(toPath, wpDoc);
@@ -440,7 +460,7 @@ public sealed class PatchTool
 
         source.Parent?.RemoveChild(source);
 
-        var destPath = DocxPath.Parse(pathStr);
+        var destPath = DocxPath.Parse(op.Path);
         if (destPath.IsChildrenPath)
         {
             var (parent, index) = PathResolver.ResolveForInsert(destPath, wpDoc);
@@ -461,15 +481,11 @@ public sealed class PatchTool
         return result;
     }
 
-    private static CopyOperationResult ExecuteCopy(JsonElement patch, WordprocessingDocument wpDoc,
-        string pathStr, bool dryRun)
+    private static CopyOperationResult ExecuteCopy(CopyPatchOperation op, WordprocessingDocument wpDoc, bool dryRun)
     {
-        var fromStr = patch.GetProperty("from").GetString()
-            ?? throw new ArgumentException("Copy patch must have a 'from' field.");
+        var result = new CopyOperationResult { Path = op.Path };
 
-        var result = new CopyOperationResult { Path = pathStr };
-
-        var fromPath = DocxPath.Parse(fromStr);
+        var fromPath = DocxPath.Parse(op.From);
         var sources = PathResolver.Resolve(fromPath, wpDoc);
         if (sources.Count != 1)
             throw new InvalidOperationException("Copy source must resolve to exactly one element.");
@@ -479,7 +495,7 @@ public sealed class PatchTool
         if (dryRun)
         {
             // Validate destination
-            var toPath = DocxPath.Parse(pathStr);
+            var toPath = DocxPath.Parse(op.Path);
             if (toPath.IsChildrenPath)
             {
                 PathResolver.ResolveForInsert(toPath, wpDoc);
@@ -498,7 +514,7 @@ public sealed class PatchTool
 
         var clone = sources[0].CloneNode(true);
 
-        var destPath = DocxPath.Parse(pathStr);
+        var destPath = DocxPath.Parse(op.Path);
         if (destPath.IsChildrenPath)
         {
             var (parent, index) = PathResolver.ResolveForInsert(destPath, wpDoc);
@@ -522,48 +538,29 @@ public sealed class PatchTool
 
     /// <summary>
     /// Find and replace text within runs, preserving all run-level formatting.
-    /// Works on paragraphs, headings, table cells, or any element containing runs.
     /// </summary>
-    private static ReplaceTextOperationResult ExecuteReplaceText(JsonElement patch, WordprocessingDocument wpDoc,
-        string pathStr, bool dryRun)
+    private static ReplaceTextOperationResult ExecuteReplaceText(ReplaceTextPatchOperation op,
+        WordprocessingDocument wpDoc, bool dryRun)
     {
-        var result = new ReplaceTextOperationResult { Path = pathStr };
+        var result = new ReplaceTextOperationResult { Path = op.Path };
 
-        var find = patch.GetProperty("find").GetString()
-            ?? throw new ArgumentException("replace_text must have a 'find' field.");
-        var replace = patch.GetProperty("replace").GetString()
-            ?? throw new ArgumentException("replace_text must have a 'replace' field.");
-
-        // Validation: empty replace is forbidden
-        if (string.IsNullOrEmpty(replace))
-            throw new ArgumentException("'replace' cannot be empty. Use 'remove' operation to delete content.");
-
-        // Get max_count (default: 1)
-        int maxCount = 1;
-        if (patch.TryGetProperty("max_count", out var maxCountEl))
-        {
-            maxCount = maxCountEl.GetInt32();
-            if (maxCount < 0)
-                throw new ArgumentException("'max_count' must be >= 0.");
-        }
-
-        var path = DocxPath.Parse(pathStr);
+        var path = DocxPath.Parse(op.Path);
         var targets = PathResolver.Resolve(path, wpDoc);
 
         if (targets.Count == 0)
-            throw new InvalidOperationException($"No elements found at path '{pathStr}'.");
+            throw new InvalidOperationException($"No elements found at path '{op.Path}'.");
 
         // Count all matches first
         int totalMatches = 0;
         foreach (var target in targets)
         {
-            totalMatches += CountTextMatches(target, find);
+            totalMatches += CountTextMatches(target, op.Find);
         }
 
         result.MatchesFound = totalMatches;
 
         // Determine how many we would/will replace
-        int toReplace = maxCount == 0 ? 0 : Math.Min(totalMatches, maxCount);
+        int toReplace = op.MaxCount == 0 ? 0 : Math.Min(totalMatches, op.MaxCount);
 
         if (dryRun)
         {
@@ -576,11 +573,11 @@ public sealed class PatchTool
         int replaced = 0;
         foreach (var target in targets)
         {
-            if (maxCount > 0 && replaced >= maxCount)
+            if (op.MaxCount > 0 && replaced >= op.MaxCount)
                 break;
 
-            int remaining = maxCount == 0 ? 0 : maxCount - replaced;
-            replaced += ReplaceTextInElement(target, find, replace, remaining);
+            int remaining = op.MaxCount == 0 ? 0 : op.MaxCount - replaced;
+            replaced += ReplaceTextInElement(target, op.Find, op.Replace, remaining);
         }
 
         result.Status = "success";
@@ -726,19 +723,17 @@ public sealed class PatchTool
 
     /// <summary>
     /// Remove a column from a table by index (0-based).
-    /// Removes the cell at the given column index from every row.
     /// </summary>
-    private static RemoveColumnOperationResult ExecuteRemoveColumn(JsonElement patch, WordprocessingDocument wpDoc,
-        string pathStr, bool dryRun)
+    private static RemoveColumnOperationResult ExecuteRemoveColumn(RemoveColumnPatchOperation op,
+        WordprocessingDocument wpDoc, bool dryRun)
     {
-        var result = new RemoveColumnOperationResult { Path = pathStr };
+        var result = new RemoveColumnOperationResult { Path = op.Path };
 
-        var column = patch.GetProperty("column").GetInt32();
-        var path = DocxPath.Parse(pathStr);
+        var path = DocxPath.Parse(op.Path);
         var targets = PathResolver.Resolve(path, wpDoc);
 
         if (targets.Count == 0)
-            throw new InvalidOperationException($"No elements found at path '{pathStr}'.");
+            throw new InvalidOperationException($"No elements found at path '{op.Path}'.");
 
         int totalRowsAffected = 0;
 
@@ -751,10 +746,10 @@ public sealed class PatchTool
             foreach (var row in rows)
             {
                 var cells = row.Elements<TableCell>().ToList();
-                if (column >= 0 && column < cells.Count)
+                if (op.Column >= 0 && op.Column < cells.Count)
                 {
                     if (!dryRun)
-                        row.RemoveChild(cells[column]);
+                        row.RemoveChild(cells[op.Column]);
                     totalRowsAffected++;
                 }
             }
@@ -766,16 +761,16 @@ public sealed class PatchTool
                 if (grid is not null)
                 {
                     var gridCols = grid.Elements<GridColumn>().ToList();
-                    if (column >= 0 && column < gridCols.Count)
+                    if (op.Column >= 0 && op.Column < gridCols.Count)
                     {
-                        grid.RemoveChild(gridCols[column]);
+                        grid.RemoveChild(gridCols[op.Column]);
                     }
                 }
             }
         }
 
         result.Status = dryRun ? "would_succeed" : "success";
-        result.ColumnIndex = column;
+        result.ColumnIndex = op.Column;
         result.RowsAffected = totalRowsAffected;
         return result;
     }
