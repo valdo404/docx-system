@@ -10,7 +10,7 @@ namespace DocxMcp.Tools;
 /// Single unified tool that detects, displays, and acknowledges external modifications.
 /// </summary>
 [McpServerToolType]
-public static class ExternalChangeTools
+public sealed class ExternalChangeTools
 {
     /// <summary>
     /// Check for external changes, get details, and optionally acknowledge them.

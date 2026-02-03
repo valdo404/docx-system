@@ -279,6 +279,34 @@ public static class DiffEngine
     {
         var changes = new List<ElementChange>();
 
+        // Build a list of matched pairs sorted by original index to detect relative order changes
+        var sortedMatches = matches.Matches
+            .OrderBy(kvp => kvp.Key)
+            .Select(kvp => (origIdx: kvp.Key, modIdx: kvp.Value.ModifiedIndex, match: kvp.Value))
+            .ToList();
+
+        // Detect moved elements: relative order changed among matched elements
+        // An element is "moved" if its position in the modified sequence (relative to other matched elements)
+        // differs from its position in the original sequence
+        var movedElements = new HashSet<int>();
+        if (sortedMatches.Count > 1)
+        {
+            // Extract the sequence of modified indices in order of original indices
+            var modifiedSequence = sortedMatches.Select(m => m.modIdx).ToList();
+
+            // Check for inversions: if any pair is out of order, mark as moves
+            // Use a simpler approach: check if modified indices are monotonically increasing
+            for (int i = 1; i < modifiedSequence.Count; i++)
+            {
+                if (modifiedSequence[i] < modifiedSequence[i - 1])
+                {
+                    // There's an inversion - mark both elements as potentially moved
+                    movedElements.Add(sortedMatches[i].origIdx);
+                    movedElements.Add(sortedMatches[i - 1].origIdx);
+                }
+            }
+        }
+
         // Process matched elements
         foreach (var (origIdx, match) in matches.Matches)
         {
@@ -287,8 +315,8 @@ public static class DiffEngine
 
             if (match.MatchType == MatchType.Exact)
             {
-                // Check if position changed (moved)
-                if (origIdx != match.ModifiedIndex)
+                // Only report as "moved" if relative order changed (not just absolute index)
+                if (movedElements.Contains(origIdx))
                 {
                     changes.Add(new ElementChange
                     {
@@ -303,7 +331,7 @@ public static class DiffEngine
                         NewText = modSnap.Text
                     });
                 }
-                // Else: no change
+                // Else: no change (index shift due to additions/deletions is not a "move")
             }
             else // Similar match = modification
             {

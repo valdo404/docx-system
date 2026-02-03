@@ -1,4 +1,6 @@
+using System.Text.Json;
 using DocxMcp;
+using DocxMcp.Diff;
 using DocxMcp.Persistence;
 using DocxMcp.Tools;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -27,8 +29,8 @@ try
     {
         "open" => CmdOpen(args),
         "list" => DocumentTools.DocumentList(sessions),
-        "close" => DocumentTools.DocumentClose(sessions, Require(args, 1, "doc_id")),
-        "save" => DocumentTools.DocumentSave(sessions, Require(args, 1, "doc_id"), Opt(args, 2)),
+        "close" => DocumentTools.DocumentClose(sessions, null, Require(args, 1, "doc_id")),
+        "save" => DocumentTools.DocumentSave(sessions, null, Require(args, 1, "doc_id"), Opt(args, 2)),
         "snapshot" => DocumentTools.DocumentSnapshot(sessions, Require(args, 1, "doc_id"),
             HasFlag(args, "--discard-redo")),
         "query" => QueryTool.Query(sessions, Require(args, 1, "doc_id"), Require(args, 2, "path"),
@@ -91,6 +93,10 @@ try
         "track-changes-enable" => RevisionTools.TrackChangesEnable(sessions, Require(args, 1, "doc_id"),
             ParseBool(Require(args, 2, "enabled"))),
 
+        // Diff commands
+        "diff" => CmdDiff(args),
+        "diff-files" => CmdDiffFiles(args),
+
         "help" or "--help" or "-h" => Usage(),
         _ => $"Unknown command: '{command}'. Run 'docx-cli help' for usage."
     };
@@ -111,7 +117,7 @@ string CmdOpen(string[] a)
     var path = Opt(a, 1);
     // Skip if it looks like a flag
     if (path is not null && path.StartsWith('-')) path = null;
-    return DocumentTools.DocumentOpen(sessions, path);
+    return DocumentTools.DocumentOpen(sessions, null, path);
 }
 
 string CmdPatch(string[] a)
@@ -120,7 +126,7 @@ string CmdPatch(string[] a)
     var dryRun = HasFlag(a, "--dry-run");
     // patches can be arg[2] or read from stdin
     var patches = GetNonFlagArg(a, 2) ?? ReadStdin();
-    return PatchTool.ApplyPatch(sessions, docId, patches, dryRun);
+    return PatchTool.ApplyPatch(sessions, null, docId, patches, dryRun);
 }
 
 string CmdAdd(string[] a)
@@ -129,7 +135,7 @@ string CmdAdd(string[] a)
     var path = Require(a, 2, "path");
     var value = GetNonFlagArg(a, 3) ?? ReadStdin();
     var dryRun = HasFlag(a, "--dry-run");
-    return ElementTools.AddElement(sessions, docId, path, value, dryRun);
+    return ElementTools.AddElement(sessions, null, docId, path, value, dryRun);
 }
 
 string CmdReplace(string[] a)
@@ -138,7 +144,7 @@ string CmdReplace(string[] a)
     var path = Require(a, 2, "path");
     var value = GetNonFlagArg(a, 3) ?? ReadStdin();
     var dryRun = HasFlag(a, "--dry-run");
-    return ElementTools.ReplaceElement(sessions, docId, path, value, dryRun);
+    return ElementTools.ReplaceElement(sessions, null, docId, path, value, dryRun);
 }
 
 string CmdRemove(string[] a)
@@ -146,7 +152,7 @@ string CmdRemove(string[] a)
     var docId = Require(a, 1, "doc_id");
     var path = Require(a, 2, "path");
     var dryRun = HasFlag(a, "--dry-run");
-    return ElementTools.RemoveElement(sessions, docId, path, dryRun);
+    return ElementTools.RemoveElement(sessions, null, docId, path, dryRun);
 }
 
 string CmdMove(string[] a)
@@ -155,7 +161,7 @@ string CmdMove(string[] a)
     var from = Require(a, 2, "from");
     var to = Require(a, 3, "to");
     var dryRun = HasFlag(a, "--dry-run");
-    return ElementTools.MoveElement(sessions, docId, from, to, dryRun);
+    return ElementTools.MoveElement(sessions, null, docId, from, to, dryRun);
 }
 
 string CmdCopy(string[] a)
@@ -164,7 +170,7 @@ string CmdCopy(string[] a)
     var from = Require(a, 2, "from");
     var to = Require(a, 3, "to");
     var dryRun = HasFlag(a, "--dry-run");
-    return ElementTools.CopyElement(sessions, docId, from, to, dryRun);
+    return ElementTools.CopyElement(sessions, null, docId, from, to, dryRun);
 }
 
 string CmdReplaceText(string[] a)
@@ -175,7 +181,7 @@ string CmdReplaceText(string[] a)
     var replace = Require(a, 4, "replace");
     var maxCount = ParseInt(OptNamed(a, "--max-count"), 1);
     var dryRun = HasFlag(a, "--dry-run");
-    return TextTools.ReplaceText(sessions, docId, path, find, replace, maxCount, dryRun);
+    return TextTools.ReplaceText(sessions, null, docId, path, find, replace, maxCount, dryRun);
 }
 
 string CmdRemoveColumn(string[] a)
@@ -184,7 +190,7 @@ string CmdRemoveColumn(string[] a)
     var path = Require(a, 2, "path");
     var column = int.Parse(Require(a, 3, "column"));
     var dryRun = HasFlag(a, "--dry-run");
-    return TableTools.RemoveTableColumn(sessions, docId, path, column, dryRun);
+    return TableTools.RemoveTableColumn(sessions, null, docId, path, column, dryRun);
 }
 
 string CmdStyleElement(string[] a)
@@ -275,6 +281,105 @@ string CmdRevisionList(string[] a)
     return RevisionTools.RevisionList(sessions, docId, author, type, offset, limit);
 }
 
+string CmdDiff(string[] a)
+{
+    // diff <doc_id> [file_path] - compare session with file (default: source file)
+    var docId = Require(a, 1, "doc_id");
+    var filePath = Opt(a, 2);
+    var threshold = ParseDouble(OptNamed(a, "--threshold"), DiffEngine.DefaultSimilarityThreshold);
+    var format = OptNamed(a, "--format") ?? "text";
+
+    var session = sessions.Get(docId);
+    var targetPath = filePath ?? session.SourcePath
+        ?? throw new ArgumentException("No file path specified and session has no source file.");
+
+    if (!File.Exists(targetPath))
+        throw new ArgumentException($"File not found: {targetPath}");
+
+    var diff = DiffEngine.CompareSessionWithFile(session, targetPath, threshold);
+    return FormatDiffResult(diff, format, $"Session '{docId}'", targetPath);
+}
+
+string CmdDiffFiles(string[] a)
+{
+    // diff-files <file1> <file2> - compare two files on disk
+    var file1 = Require(a, 1, "file1");
+    var file2 = Require(a, 2, "file2");
+    var threshold = ParseDouble(OptNamed(a, "--threshold"), DiffEngine.DefaultSimilarityThreshold);
+    var format = OptNamed(a, "--format") ?? "text";
+
+    if (!File.Exists(file1))
+        throw new ArgumentException($"File not found: {file1}");
+    if (!File.Exists(file2))
+        throw new ArgumentException($"File not found: {file2}");
+
+    var diff = DiffEngine.Compare(file1, file2, threshold);
+    return FormatDiffResult(diff, format, file1, file2);
+}
+
+string FormatDiffResult(DiffResult diff, string format, string original, string modified)
+{
+    if (format == "json")
+        return diff.ToJson();
+
+    // Text format
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine($"Diff: {original} → {modified}");
+    sb.AppendLine(new string('=', 60));
+
+    if (!diff.HasChanges)
+    {
+        sb.AppendLine("No changes detected.");
+        return sb.ToString();
+    }
+
+    sb.AppendLine($"Total changes: {diff.Changes.Count}");
+    sb.AppendLine($"  Removed: {diff.Changes.Count(c => c.ChangeType == ChangeType.Removed)}");
+    sb.AppendLine($"  Added: {diff.Changes.Count(c => c.ChangeType == ChangeType.Added)}");
+    sb.AppendLine($"  Modified: {diff.Changes.Count(c => c.ChangeType == ChangeType.Modified)}");
+    sb.AppendLine($"  Moved: {diff.Changes.Count(c => c.ChangeType == ChangeType.Moved)}");
+    sb.AppendLine();
+
+    foreach (var change in diff.Changes)
+    {
+        var symbol = change.ChangeType switch
+        {
+            ChangeType.Removed => "[-]",
+            ChangeType.Added => "[+]",
+            ChangeType.Modified => "[~]",
+            ChangeType.Moved => "[>]",
+            _ => "[?]"
+        };
+
+        sb.AppendLine($"{symbol} {change.ChangeType}: {change.ElementType}");
+
+        if (change.OldIndex.HasValue)
+            sb.AppendLine($"    Old index: {change.OldIndex}");
+        if (change.NewIndex.HasValue)
+            sb.AppendLine($"    New index: {change.NewIndex}");
+
+        if (!string.IsNullOrEmpty(change.OldText))
+        {
+            var oldText = change.OldText.Length > 80
+                ? change.OldText[..77] + "..."
+                : change.OldText;
+            sb.AppendLine($"    Old: \"{oldText.Replace("\n", "\\n")}\"");
+        }
+
+        if (!string.IsNullOrEmpty(change.NewText))
+        {
+            var newText = change.NewText.Length > 80
+                ? change.NewText[..77] + "..."
+                : change.NewText;
+            sb.AppendLine($"    New: \"{newText.Replace("\n", "\\n")}\"");
+        }
+
+        sb.AppendLine();
+    }
+
+    return sb.ToString();
+}
+
 // --- Argument helpers ---
 
 static string Require(string[] a, int idx, string name)
@@ -318,6 +423,9 @@ static int? ParseIntOpt(string? s) =>
 
 static bool ParseBool(string s) =>
     s.ToLowerInvariant() is "true" or "1" or "yes" or "on";
+
+static double ParseDouble(string? s, double def) =>
+    s is not null && double.TryParse(s, out var v) ? v : def;
 
 static string ReadStdin()
 {
@@ -393,6 +501,12 @@ static void PrintUsage()
       export-html <doc_id> <output_path>
       export-markdown <doc_id> <output_path>
       export-pdf <doc_id> <output_path>
+
+    Diff commands:
+      diff <doc_id> [file_path] [--threshold 0.6] [--format text|json]
+                                 Compare session with file (default: source file)
+      diff-files <file1> <file2> [--threshold 0.6] [--format text|json]
+                                 Compare two DOCX files on disk
 
     Options:
       --dry-run    Simulate operation without applying changes

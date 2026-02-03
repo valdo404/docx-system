@@ -117,6 +117,7 @@ public sealed class ElementSnapshot
     /// <summary>
     /// Compute a content-based fingerprint that doesn't depend on IDs.
     /// Two elements with the same content will have the same fingerprint.
+    /// Uses EXACT text matching - whitespace differences ARE detected.
     /// </summary>
     private static string ComputeFingerprint(OpenXmlElement element, string elementType, string text)
     {
@@ -130,8 +131,8 @@ public sealed class ElementSnapshot
             sb.Append($"h{level}|");
         }
 
-        // Include normalized text content
-        sb.Append(NormalizeText(text));
+        // Include EXACT text content (whitespace matters)
+        sb.Append(text);
 
         // For tables, include structure info
         if (element is Table table)
@@ -166,6 +167,7 @@ public sealed class ElementSnapshot
 
     /// <summary>
     /// Check if two snapshots have equivalent content.
+    /// Uses EXACT comparison - whitespace differences matter.
     /// </summary>
     public bool ContentEquals(ElementSnapshot other)
     {
@@ -173,8 +175,8 @@ public sealed class ElementSnapshot
         if (ElementType != other.ElementType)
             return false;
 
-        // Compare normalized text
-        if (NormalizeText(Text) != NormalizeText(other.Text))
+        // Compare EXACT text (whitespace matters)
+        if (Text != other.Text)
             return false;
 
         // For paragraphs, compare run structure
@@ -322,10 +324,10 @@ public sealed class ElementSnapshot
             if (rowA.Children.Count != rowB.Children.Count)
                 return false;
 
-            // Compare each cell's text
+            // Compare each cell's text (exact match)
             for (int j = 0; j < rowA.Children.Count; j++)
             {
-                if (NormalizeText(rowA.Children[j].Text) != NormalizeText(rowB.Children[j].Text))
+                if (rowA.Children[j].Text != rowB.Children[j].Text)
                     return false;
             }
         }
@@ -471,7 +473,7 @@ public sealed class ElementSnapshot
             var runsArr = new JsonArray();
             foreach (var r in runs)
             {
-                runsArr.Add(RunToJsonObject(r));
+                runsArr.Add((JsonNode?)RunToJsonObject(r));
             }
             result["runs"] = runsArr;
         }
@@ -494,10 +496,11 @@ public sealed class ElementSnapshot
                 var cellsArr = new JsonArray();
                 foreach (var cell in row.Elements<TableCell>())
                 {
-                    cellsArr.Add(cell.InnerText);
+                    JsonNode? cellNode = System.Text.Json.Nodes.JsonValue.Create(cell.InnerText);
+                    cellsArr.Add(cellNode);
                 }
                 rowObj["cells"] = cellsArr;
-                rowsArr.Add(rowObj);
+                rowsArr.Add((JsonNode?)rowObj);
             }
             result["rows"] = rowsArr;
         }
@@ -516,7 +519,8 @@ public sealed class ElementSnapshot
         var cellsArr = new JsonArray();
         foreach (var c in cells)
         {
-            cellsArr.Add(c.InnerText);
+            JsonNode? cellNode = System.Text.Json.Nodes.JsonValue.Create(c.InnerText);
+            cellsArr.Add(cellNode);
         }
         result["cells"] = cellsArr;
 
@@ -551,12 +555,11 @@ public sealed class ElementSnapshot
         // Check for break
         if (r.GetFirstChild<Break>() is Break brk)
         {
-            var breakType = brk.Type?.Value switch
-            {
-                BreakValues.Page => "page",
-                BreakValues.Column => "column",
-                _ => "line"
-            };
+            var breakType = "line";
+            if (brk.Type?.Value == BreakValues.Page)
+                breakType = "page";
+            else if (brk.Type?.Value == BreakValues.Column)
+                breakType = "column";
             result["break"] = breakType;
             result["text"] = "";
             return;
@@ -610,12 +613,11 @@ public sealed class ElementSnapshot
         // Check for break
         if (r.GetFirstChild<Break>() is Break brk)
         {
-            var breakType = brk.Type?.Value switch
-            {
-                BreakValues.Page => "page",
-                BreakValues.Column => "column",
-                _ => "line"
-            };
+            var breakType = "line";
+            if (brk.Type?.Value == BreakValues.Page)
+                breakType = "page";
+            else if (brk.Type?.Value == BreakValues.Column)
+                breakType = "column";
             result["break"] = breakType;
             return result;
         }

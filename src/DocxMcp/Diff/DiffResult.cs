@@ -100,11 +100,20 @@ public sealed class DiffResult
     /// </summary>
     public string ToJson(bool indented = true)
     {
+        var summaryJson = new JsonObject
+        {
+            ["total_changes"] = Summary.TotalChanges,
+            ["added"] = Summary.Added,
+            ["removed"] = Summary.Removed,
+            ["modified"] = Summary.Modified,
+            ["moved"] = Summary.Moved
+        };
+
         var result = new JsonObject
         {
-            ["summary"] = JsonSerializer.SerializeToNode(Summary),
-            ["changes"] = new JsonArray(Changes.Select(c => c.ToJson()).ToArray()),
-            ["patches"] = new JsonArray(ToPatches().Select(p => (JsonNode)p).ToArray())
+            ["summary"] = summaryJson,
+            ["changes"] = new JsonArray(Changes.Select(c => (JsonNode?)c.ToJson()).ToArray()),
+            ["patches"] = new JsonArray(ToPatches().Select(p => (JsonNode?)p).ToArray())
         };
 
         return result.ToJsonString(new JsonSerializerOptions { WriteIndented = indented });

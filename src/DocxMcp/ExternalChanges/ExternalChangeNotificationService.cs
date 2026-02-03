@@ -1,29 +1,26 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using ModelContextProtocol.Server;
 
 namespace DocxMcp.ExternalChanges;
 
 /// <summary>
-/// Background service that monitors for external changes and sends MCP notifications.
-/// When an external change is detected, it notifies the LLM via MCP resources/updated.
+/// Background service that monitors for external changes.
+/// When an external change is detected, it stores the change and logs a warning.
+/// Patch operations will block until changes are acknowledged.
 /// </summary>
 public sealed class ExternalChangeNotificationService : BackgroundService
 {
     private readonly ExternalChangeTracker _tracker;
     private readonly SessionManager _sessions;
-    private readonly IMcpServer _mcpServer;
     private readonly ILogger<ExternalChangeNotificationService> _logger;
 
     public ExternalChangeNotificationService(
         ExternalChangeTracker tracker,
         SessionManager sessions,
-        IMcpServer mcpServer,
         ILogger<ExternalChangeNotificationService> logger)
     {
         _tracker = tracker;
         _sessions = sessions;
-        _mcpServer = mcpServer;
         _logger = logger;
     }
 
@@ -99,9 +96,8 @@ public sealed class ExternalChangeNotificationService : BackgroundService
                 },
                 message = $"ATTENTION: The document '{Path.GetFileName(patch.SourcePath)}' has been modified externally. " +
                           $"{patch.Summary.TotalChanges} change(s) detected. " +
-                          "You MUST call `get_external_changes` to review the changes and " +
-                          "`acknowledge_external_change` before continuing to edit.",
-                required_action = "Call get_external_changes and acknowledge_external_change before any further edits."
+                          "Call `get_external_changes` with acknowledge=true to proceed.",
+                required_action = "Call get_external_changes with acknowledge=true before any further edits."
             };
 
             // Log the notification (MCP server will handle actual notification delivery)
