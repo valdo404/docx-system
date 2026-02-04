@@ -13,7 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Anthropic.SDK" Version="3.7.0" />
+    <PackageReference Include="Anthropic.SDK" Version="5.9.0" />
   </ItemGroup>
 
 </Project>

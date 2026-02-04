@@ -62,11 +62,10 @@ public sealed class ClaudeService
         };
 
         var patchBuffer = new StringBuilder();
-        var inPatchBlock = false;
 
         await foreach (var evt in _client.Messages.StreamClaudeMessageAsync(parameters, cancellationToken))
         {
-            if (evt is ContentBlockDelta { Delta.Text: { } text })
+            if (evt.Delta?.Text is { } text)
             {
                 // Parse streaming text for patches
                 patchBuffer.Append(text);
@@ -99,11 +98,13 @@ public sealed class ClaudeService
                     Content = text
                 };
             }
-            else if (evt is MessageDelta { Usage: { } usage })
+
+            if (evt.Usage is { OutputTokens: > 0 } usage)
             {
                 outputTokens = usage.OutputTokens;
             }
-            else if (evt is MessageStart { Message.Usage: { } startUsage })
+
+            if (evt.StreamStartMessage?.Usage is { InputTokens: > 0 } startUsage)
             {
                 inputTokens = startUsage.InputTokens;
             }
