@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using DocxMcp.ExternalChanges;
 using DocxMcp.Persistence;
 using Microsoft.Extensions.Logging;
 
@@ -22,6 +23,8 @@ public sealed class SessionManager
     private readonly object _indexLock = new();
     private readonly int _compactThreshold;
     private readonly int _checkpointInterval;
+    private readonly bool _autoSaveEnabled;
+    private ExternalChangeTracker? _externalChangeTracker;
 
     public SessionManager(SessionStore store, ILogger<SessionManager> logger)
     {
@@ -34,6 +37,17 @@ public sealed class SessionManager
 
         var intervalEnv = Environment.GetEnvironmentVariable("DOCX_CHECKPOINT_INTERVAL");
         _checkpointInterval = int.TryParse(intervalEnv, out var ci) && ci > 0 ? ci : 10;
+
+        var autoSaveEnv = Environment.GetEnvironmentVariable("DOCX_AUTO_SAVE");
+        _autoSaveEnabled = autoSaveEnv is null || !string.Equals(autoSaveEnv, "false", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Set the external change tracker (setter injection to avoid circular dependency).
+    /// </summary>
+    public void SetExternalChangeTracker(ExternalChangeTracker tracker)
+    {
+        _externalChangeTracker = tracker;
     }
 
     public DocxSession Open(string path)
@@ -214,6 +228,8 @@ public sealed class SessionManager
             // Compact AFTER releasing the file lock to avoid deadlock
             if (shouldCompact)
                 Compact(id);
+
+            MaybeAutoSave(id);
         }
         catch (Exception ex)
         {
@@ -684,6 +700,31 @@ public sealed class SessionManager
     }
 
     // --- Private helpers ---
+
+    /// <summary>
+    /// Auto-save the document to its source path after a user edit (best-effort).
+    /// Skipped for new documents (no SourcePath) or when auto-save is disabled.
+    /// </summary>
+    private void MaybeAutoSave(string id)
+    {
+        if (!_autoSaveEnabled)
+            return;
+
+        try
+        {
+            var session = Get(id);
+            if (session.SourcePath is null)
+                return;
+
+            session.Save();
+            _externalChangeTracker?.UpdateSessionSnapshot(id);
+            _logger.LogDebug("Auto-saved session {SessionId} to {Path}.", id, session.SourcePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Auto-save failed for session {SessionId}.", id);
+        }
+    }
 
     private void PersistNewSession(DocxSession session)
     {
