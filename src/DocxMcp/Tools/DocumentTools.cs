@@ -40,8 +40,8 @@ public sealed class DocumentTools
 
     [McpServerTool(Name = "document_save"), Description(
         "Save the document to disk. " +
-        "If output_path is provided, saves to that path (Save As). " +
-        "Otherwise saves to the original path. " +
+        "Documents opened from a file are auto-saved after each edit by default (DOCX_AUTO_SAVE=true). " +
+        "Use this tool for 'Save As' (providing output_path) or to save new documents that have no source path. " +
         "Updates the external change tracker snapshot after saving.")]
     public static string DocumentSave(
         SessionManager sessions,

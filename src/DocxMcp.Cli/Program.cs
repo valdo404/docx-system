@@ -8,14 +8,12 @@ using DocxMcp.Tools;
 using Microsoft.Extensions.Logging.Abstractions;
 
 // --- Bootstrap ---
-var sessionsDir = Environment.GetEnvironmentVariable("DOCX_SESSIONS_DIR")
-    ?? Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "docx-mcp", "sessions");
+var sessionsDir = Environment.GetEnvironmentVariable("DOCX_SESSIONS_DIR");
 
 var store = new SessionStore(NullLogger<SessionStore>.Instance, sessionsDir);
 var sessions = new SessionManager(store, NullLogger<SessionManager>.Instance);
 var externalTracker = new ExternalChangeTracker(sessions, NullLogger<ExternalChangeTracker>.Instance);
+sessions.SetExternalChangeTracker(externalTracker);
 sessions.RestoreSessions();
 
 if (args.Length == 0)
@@ -779,6 +777,7 @@ static void PrintUsage()
       DOCX_SESSIONS_DIR            Override sessions directory (shared with MCP server)
       DOCX_WAL_COMPACT_THRESHOLD   Auto-compact WAL after N entries (default: 50)
       DOCX_CHECKPOINT_INTERVAL     Create checkpoint every N entries (default: 10)
+      DOCX_AUTO_SAVE               Auto-save to source file after each edit (default: true)
       DEBUG                            Enable debug logging for sync operations
 
     Sessions persist between invocations and are shared with the MCP server.
