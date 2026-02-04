@@ -14,6 +14,7 @@ jobs:
     permissions:
       contents: read
       deployments: write
+    environment: production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,7 +28,14 @@ jobs:
 
       - name: Install dependencies
         working-directory: website
-        run: npm ci || npm install
+        run: npm ci
+
+      - name: Apply D1 migrations
+        working-directory: website
+        run: npx wrangler d1 migrations apply docx-mcp-auth --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Build Astro site
         working-directory: website
