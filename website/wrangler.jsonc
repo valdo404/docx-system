@@ -8,13 +8,13 @@
     {
       "binding": "DB",
       "database_name": "docx-mcp-auth",
-      "database_id": "<A_CREER_VIA_WRANGLER_CLI>"
+      "database_id": "609c7a5e-34d2-4ca3-974c-8ea81bd7897b"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "SESSION",
-      "id": "<A_CREER_VIA_WRANGLER_CLI>"
+      "id": "ab2f243e258b4eb2b3be9dfaf7665b38"
     }
   ],
   "vars": {
