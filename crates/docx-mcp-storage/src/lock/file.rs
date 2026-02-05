@@ -143,7 +143,7 @@ impl LockManager for FileLock {
                     // Remove and drop the file handle - this releases the lock
                     let (_, file) = entry.remove();
                     // Explicitly unlock before dropping (not strictly necessary but clean)
-                    let _ = file.unlock();
+                    let _ = fs2::FileExt::unlock(&file);
                     debug!(
                         "Released lock on {}/{} by {}",
                         tenant_id, resource_id, holder_id
