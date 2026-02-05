@@ -798,7 +798,7 @@ static void PrintUsage()
                                  Watch file or folder for changes (daemon mode)
 
     Global options:
-      --tenant <id>  Specify tenant ID (default: 'local')
+      --tenant <id>  Specify tenant ID for multi-tenant deployments (optional)
       --dry-run      Simulate operation without applying changes
 
     Environment:
