@@ -7,12 +7,14 @@ mod storage;
 use std::sync::Arc;
 
 use clap::Parser;
-use tokio::net::UnixListener;
 use tokio::signal;
 use tokio::sync::watch;
 use tonic::transport::Server;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
+
+#[cfg(unix)]
+use tokio::net::UnixListener;
 
 use config::{Config, StorageBackend, Transport};
 use lock::FileLock;
@@ -88,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
                 .serve_with_shutdown(addr, shutdown_future)
                 .await?;
         }
+        #[cfg(unix)]
         Transport::Unix => {
             let socket_path = config.effective_unix_socket();
 
@@ -115,6 +118,10 @@ async fn main() -> anyhow::Result<()> {
             if socket_path.exists() {
                 let _ = std::fs::remove_file(&socket_path);
             }
+        }
+        #[cfg(not(unix))]
+        Transport::Unix => {
+            anyhow::bail!("Unix socket transport is not supported on Windows. Use TCP instead.");
         }
     }
 
@@ -179,14 +186,16 @@ fn setup_parent_death_poll(parent_pid: u32) {
 
             #[cfg(windows)]
             let alive = {
+                // SYNCHRONIZE = 0x00100000 - we need this to open process for synchronization
+                const SYNCHRONIZE: u32 = 0x00100000;
                 let handle = unsafe {
                     windows_sys::Win32::System::Threading::OpenProcess(
-                        windows_sys::Win32::System::Threading::SYNCHRONIZE,
+                        SYNCHRONIZE,
                         0,
                         parent_pid,
                     )
                 };
-                if !handle.is_null() {
+                if handle != std::ptr::null_mut() {
                     unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
                     true
                 } else {
