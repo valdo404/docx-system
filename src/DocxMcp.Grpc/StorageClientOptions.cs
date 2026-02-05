@@ -30,14 +30,17 @@ public sealed class StorageClientOptions
     public string? StorageServerPath { get; set; }
 
     /// <summary>
-    /// Base directory for local session storage.
+    /// Base directory for local storage.
     /// Passed to the storage server via --local-storage-dir.
-    /// Default: LocalApplicationData/docx-mcp/sessions
+    /// The server will create {base}/{tenant_id}/sessions/ structure.
+    /// Default: LocalApplicationData/docx-mcp
     /// </summary>
     public string? LocalStorageDir { get; set; }
 
     /// <summary>
     /// Get effective local storage directory.
+    /// Note: This returns the BASE directory, not the sessions directory.
+    /// The storage server adds {tenant_id}/sessions/ to this path.
     /// </summary>
     public string GetEffectiveLocalStorageDir()
     {
@@ -45,7 +48,7 @@ public sealed class StorageClientOptions
             return LocalStorageDir;
 
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(localAppData, "docx-mcp", "sessions");
+        return Path.Combine(localAppData, "docx-mcp");
     }
 
     /// <summary>

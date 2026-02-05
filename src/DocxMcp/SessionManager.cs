@@ -246,10 +246,10 @@ public sealed class SessionManager
 
         var json = System.Text.Encoding.UTF8.GetString(indexData);
         var index = JsonSerializer.Deserialize(json, SessionJsonContext.Default.SessionIndex);
-        if (index is null || !index.Sessions.TryGetValue(id, out var entry))
+        if (index is null || !index.TryGetValue(id, out var entry))
             return new List<ulong>();
 
-        return entry.CheckpointPositions.Where(p => p > threshold).ToList();
+        return entry!.CheckpointPositions.Where(p => (ulong)p > threshold).Select(p => (ulong)p).ToList();
     }
 
     private async Task<List<int>> GetCheckpointPositionsAsync(string id)
@@ -260,10 +260,10 @@ public sealed class SessionManager
 
         var json = System.Text.Encoding.UTF8.GetString(indexData);
         var index = JsonSerializer.Deserialize(json, SessionJsonContext.Default.SessionIndex);
-        if (index is null || !index.Sessions.TryGetValue(id, out var entry))
+        if (index is null || !index.TryGetValue(id, out var entry))
             return new List<int>();
 
-        return entry.CheckpointPositions.Select(p => (int)p).ToList();
+        return entry!.CheckpointPositions;
     }
 
     /// <summary>
@@ -605,26 +605,40 @@ public sealed class SessionManager
 
         int restored = 0;
 
-        foreach (var (sessionId, entry) in index.Sessions.ToList())
+        foreach (var entry in index.Sessions.ToList())
         {
+            var sessionId = entry.Id;
             try
             {
-                var walEntries = await ReadWalEntriesAsync(sessionId);
-                var walCount = walEntries.Count;
+                // Try to read WAL entries (may fail for legacy binary format)
+                List<WalEntry> walEntries = [];
+                int walCount = 0;
+                bool walReadFailed = false;
+                try
+                {
+                    walEntries = await ReadWalEntriesAsync(sessionId);
+                    walCount = walEntries.Count;
+                }
+                catch (Exception walEx)
+                {
+                    // WAL may be in legacy binary format - log and continue without replay
+                    _logger.LogDebug(walEx, "Could not read WAL for session {SessionId} (may be legacy format); skipping replay.", sessionId);
+                    walReadFailed = true;
+                }
+
                 // Use WAL position as cursor target (cursor is now local only)
                 var cursorTarget = (int)entry.WalPosition;
-
                 if (cursorTarget < 0)
                     cursorTarget = walCount;
-
                 var replayCount = Math.Min(cursorTarget, walCount);
 
-                // Load from nearest checkpoint
+                // Load from nearest checkpoint or baseline
+                byte[] sessionBytes;
+                int checkpointPosition = 0;
+
+                // First try latest checkpoint
                 var (ckptData, ckptPos, ckptFound) = await _storage.LoadCheckpointAsync(
                     TenantId, sessionId, (ulong)replayCount);
-
-                byte[] sessionBytes;
-                int checkpointPosition;
 
                 if (ckptFound && ckptData is not null)
                 {
@@ -644,10 +658,19 @@ public sealed class SessionManager
                     checkpointPosition = 0;
                 }
 
-                var session = DocxSession.FromBytes(sessionBytes, sessionId, entry.SourcePath);
+                DocxSession session;
+                try
+                {
+                    session = DocxSession.FromBytes(sessionBytes, sessionId, entry.SourcePath);
+                }
+                catch (Exception docxEx)
+                {
+                    _logger.LogWarning(docxEx, "Failed to load session {SessionId} from checkpoint/baseline; skipping.", sessionId);
+                    continue;
+                }
 
-                // Replay patches after checkpoint
-                if (replayCount > checkpointPosition)
+                // Replay patches after checkpoint (skip if WAL read failed)
+                if (!walReadFailed && replayCount > checkpointPosition)
                 {
                     var patchesToReplay = walEntries
                         .Skip(checkpointPosition)
