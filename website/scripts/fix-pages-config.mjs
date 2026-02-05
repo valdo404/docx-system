@@ -1,21 +1,21 @@
 /**
  * Post-build fix for @astrojs/cloudflare Pages compatibility.
  *
- * `astro build` with @astrojs/cloudflare generates dist/_worker.js/wrangler.json
- * containing Worker-specific keys that break `wrangler pages deploy`:
+ * `astro build` with @astrojs/cloudflare generates:
+ *   - dist/_worker.js/wrangler.json with Worker-specific config (main, rules)
+ *   - dist/_worker.js/entry.mjs as the worker entry point
+ *   - .wrangler/deploy/config.json redirecting to the generated config
  *
- *   - `rules`  — ESModule rules, not valid for Pages
- *   - `assets` — uses reserved "ASSETS" binding name
+ * Pages expects the entry at `_worker.js/index.js` and doesn't support
+ * Worker config keys like `main`. We fix this by:
+ *   1. Renaming entry.mjs → index.js
+ *   2. Removing the generated wrangler.json and deploy redirect
  *
- * We patch the file to remove only these problematic keys while preserving
- * essential config like `main: "entry.mjs"` (the worker entry point).
+ * Wrangler then uses the project-level wrangler.jsonc for bindings (D1, KV)
+ * and finds the entry point at the expected location.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { renameSync, rmSync } from 'node:fs';
 
-const configPath = 'dist/_worker.js/wrangler.json';
-const config = JSON.parse(readFileSync(configPath, 'utf8'));
-
-delete config.rules;
-delete config.assets;
-
-writeFileSync(configPath, JSON.stringify(config));
+renameSync('dist/_worker.js/entry.mjs', 'dist/_worker.js/index.js');
+rmSync('dist/_worker.js/wrangler.json', { force: true });
+rmSync('.wrangler/deploy/config.json', { force: true });
