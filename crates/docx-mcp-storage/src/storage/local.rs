@@ -515,19 +515,16 @@ impl StorageBackend for LocalStorage {
         &self,
         tenant_id: &str,
         session_id: &str,
-        keep_from: u64,
+        keep_count: u64,
     ) -> Result<u64, StorageError> {
         let (entries, _) = self.read_wal(tenant_id, session_id, 0, None).await?;
 
-        // Special case: keep_from = 0 means "delete all entries" (clear WAL)
-        // This is because WAL positions start at 1, so keep_from >= 1 would keep
-        // entries from position 1 onwards. To delete everything, use keep_from = 0.
-        let (to_remove, to_keep): (Vec<_>, Vec<_>) = if keep_from == 0 {
-            // Delete all - to_keep is empty
-            (entries, Vec::new())
-        } else {
-            entries.into_iter().partition(|e| e.position < keep_from)
-        };
+        // keep_count = number of entries to keep from the beginning
+        // - keep_count = 0 means "delete all entries"
+        // - keep_count = 1 means "keep first entry" (position 1)
+        // - keep_count = N means "keep entries with position <= N"
+        let (to_keep, to_remove): (Vec<_>, Vec<_>) =
+            entries.into_iter().partition(|e| e.position <= keep_count);
 
         let removed_count = to_remove.len() as u64;
 
@@ -791,12 +788,13 @@ mod tests {
         assert_eq!(read_entries.len(), 1);
         assert_eq!(read_entries[0].position, 2);
 
-        // Truncate
-        let removed = storage.truncate_wal(tenant, session, 2).await.unwrap();
+        // Truncate - keep first 1 entry (position <= 1), remove entry at position 2
+        let removed = storage.truncate_wal(tenant, session, 1).await.unwrap();
         assert_eq!(removed, 1);
 
         let (read_entries, _) = storage.read_wal(tenant, session, 0, None).await.unwrap();
         assert_eq!(read_entries.len(), 1);
+        assert_eq!(read_entries[0].position, 1);
     }
 
     #[tokio::test]

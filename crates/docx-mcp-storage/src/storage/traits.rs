@@ -200,12 +200,14 @@ pub trait StorageBackend: Send + Sync {
         limit: Option<u64>,
     ) -> Result<(Vec<WalEntry>, bool), StorageError>;
 
-    /// Truncate WAL, keeping only entries at or after the given position.
+    /// Truncate WAL, keeping only the first N entries.
+    /// - keep_count = 0: delete all entries
+    /// - keep_count = N: keep entries with position <= N
     async fn truncate_wal(
         &self,
         tenant_id: &str,
         session_id: &str,
-        keep_from: u64,
+        keep_count: u64,
     ) -> Result<u64, StorageError>;
 
     // =========================================================================
