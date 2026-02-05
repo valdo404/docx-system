@@ -6,9 +6,15 @@ export function getLangFromUrl(url: URL): Lang {
   return defaultLang;
 }
 
+const currentYear = new Date().getFullYear().toString();
+
 export function useTranslations(lang: Lang) {
   return function t(key: keyof (typeof ui)[typeof defaultLang]): string | readonly string[] {
-    return ui[lang][key] ?? ui[defaultLang][key];
+    const value = ui[lang][key] ?? ui[defaultLang][key];
+    if (typeof value === 'string') {
+      return value.replace(/\{\{year\}\}/g, currentYear);
+    }
+    return value;
   };
 }
 

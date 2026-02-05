@@ -3,6 +3,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
+import PatManager from '../components/PatManager.astro';
 import { useTranslations } from '../i18n/utils';
 
 const t = useTranslations('fr');
@@ -34,12 +35,7 @@ const tenant = Astro.locals.tenant!;
         </div>
       </div>
 
-      <div class="tenant-info">
-        <div class="info-row">
-          <span class="info-label">{t('dashboard.tenantId')}</span>
-          <code>{tenant.id}</code>
-        </div>
-      </div>
+      <PatManager lang="fr" />
 
       <form method="POST" action="/api/auth/logout" class="logout-form">
         <button type="submit" class="btn btn-secondary">{t('nav.logout')}</button>
@@ -92,39 +88,6 @@ const tenant = Astro.locals.tenant!;
     font-size: var(--font-size-300);
     color: var(--text-tertiary);
     font-style: italic;
-  }
-
-  .tenant-info {
-    background: var(--bg-layer-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-l);
-    padding: var(--spacing-xxl);
-    margin-bottom: var(--spacing-xxxl);
-  }
-
-  .info-row {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-l);
-    padding: var(--spacing-m) 0;
-  }
-
-  .info-row:not(:last-child) {
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .info-label {
-    font-size: var(--font-size-300);
-    color: var(--text-tertiary);
-    min-width: 160px;
-  }
-
-  .info-row code {
-    font-size: var(--font-size-300);
-    color: var(--text-secondary);
-    background: var(--bg-layer-3);
-    padding: var(--spacing-xs) var(--spacing-m);
-    border-radius: var(--radius-s);
   }
 
   .logout-form {

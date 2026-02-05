@@ -6,10 +6,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const isProtectedRoute =
     url.pathname.startsWith('/tableau-de-bord') ||
     url.pathname.startsWith('/en/dashboard');
+  const isPatRoute = url.pathname.startsWith('/api/pat');
   const isAuthRoute = url.pathname.startsWith('/api/auth');
 
   // Skip for static pages (landing, etc.)
-  if (!isProtectedRoute && !isAuthRoute) {
+  if (!isProtectedRoute && !isAuthRoute && !isPatRoute) {
     return next();
   }
 
@@ -34,8 +35,16 @@ export const onRequest = defineMiddleware(async (context, next) => {
     return context.redirect(loginPath);
   }
 
-  // Provision tenant on protected routes
-  if (isProtectedRoute && session) {
+  // Return 401 for PAT routes without auth
+  if (isPatRoute && !session) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Provision tenant on protected routes and PAT routes
+  if ((isProtectedRoute || isPatRoute) && session) {
     const { getOrCreateTenant } = await import('./lib/tenant');
     const typedEnv = env as unknown as Env;
     const tenant = await getOrCreateTenant(

@@ -1,0 +1,480 @@
+---
+interface Props {
+  lang: 'fr' | 'en';
+}
+
+const { lang } = Astro.props;
+
+const translations = {
+  fr: {
+    title: "Tokens d'accès personnel",
+    description: 'Créez des tokens pour connecter vos outils et agents IA.',
+    create: 'Créer un token',
+    name: 'Nom',
+    namePlaceholder: 'Mon token de production',
+    created: 'Créé le',
+    lastUsed: 'Dernière utilisation',
+    never: 'Jamais',
+    expires: 'Expire le',
+    noExpiry: 'Jamais',
+    delete: 'Supprimer',
+    deleteConfirm: 'Êtes-vous sûr de vouloir supprimer ce token ?',
+    empty: 'Aucun token créé',
+    copyWarning: 'Copiez ce token maintenant. Il ne sera plus affiché.',
+    copied: 'Copié !',
+    copy: 'Copier',
+    close: 'Fermer',
+  },
+  en: {
+    title: 'Personal Access Tokens',
+    description: 'Create tokens to connect your tools and AI agents.',
+    create: 'Create token',
+    name: 'Name',
+    namePlaceholder: 'My production token',
+    created: 'Created',
+    lastUsed: 'Last used',
+    never: 'Never',
+    expires: 'Expires',
+    noExpiry: 'Never',
+    delete: 'Delete',
+    deleteConfirm: 'Are you sure you want to delete this token?',
+    empty: 'No tokens created',
+    copyWarning: "Copy this token now. It won't be shown again.",
+    copied: 'Copied!',
+    copy: 'Copy',
+    close: 'Close',
+  },
+};
+
+const t = translations[lang];
+---
+
+<pat-manager data-lang={lang} data-translations={JSON.stringify(t)}>
+  <div class="pat-section">
+    <div class="pat-header">
+      <div>
+        <h2>{t.title}</h2>
+        <p class="pat-description">{t.description}</p>
+      </div>
+      <button class="btn btn-primary" id="create-pat-btn">{t.create}</button>
+    </div>
+
+    <div class="pat-list" id="pat-list">
+      <div class="pat-loading">Loading...</div>
+    </div>
+
+    <!-- Create Modal -->
+    <dialog id="create-modal" class="modal">
+      <form id="create-form" class="modal-content">
+        <h3>{t.create}</h3>
+        <div class="form-group">
+          <label for="pat-name">{t.name}</label>
+          <input type="text" id="pat-name" name="name" placeholder={t.namePlaceholder} required />
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="cancel-create">{t.close}</button>
+          <button type="submit" class="btn btn-primary">{t.create}</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Token Display Modal -->
+    <dialog id="token-modal" class="modal">
+      <div class="modal-content">
+        <h3>{t.copyWarning}</h3>
+        <div class="token-display">
+          <code id="token-value"></code>
+          <button type="button" class="btn btn-secondary btn-small" id="copy-token">{t.copy}</button>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-primary" id="close-token">{t.close}</button>
+        </div>
+      </div>
+    </dialog>
+  </div>
+</pat-manager>
+
+<script>
+  interface PatInfo {
+    id: string;
+    name: string;
+    tokenPrefix: string;
+    createdAt: string;
+    lastUsedAt: string | null;
+    expiresAt: string | null;
+  }
+
+  interface Translations {
+    title: string;
+    description: string;
+    create: string;
+    name: string;
+    namePlaceholder: string;
+    created: string;
+    lastUsed: string;
+    never: string;
+    expires: string;
+    noExpiry: string;
+    delete: string;
+    deleteConfirm: string;
+    empty: string;
+    copyWarning: string;
+    copied: string;
+    copy: string;
+    close: string;
+  }
+
+  class PatManager extends HTMLElement {
+    private t!: Translations;
+
+    async connectedCallback() {
+      this.t = JSON.parse(this.dataset.translations || '{}');
+      await this.loadPats();
+      this.setupListeners();
+    }
+
+    setupListeners() {
+      const createBtn = this.querySelector('#create-pat-btn');
+      const createModal = this.querySelector('#create-modal') as HTMLDialogElement;
+      const createForm = this.querySelector('#create-form') as HTMLFormElement;
+      const cancelCreate = this.querySelector('#cancel-create');
+      const tokenModal = this.querySelector('#token-modal') as HTMLDialogElement;
+      const closeToken = this.querySelector('#close-token');
+      const copyToken = this.querySelector('#copy-token');
+
+      createBtn?.addEventListener('click', () => createModal?.showModal());
+      cancelCreate?.addEventListener('click', () => createModal?.close());
+
+      createForm?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(createForm);
+        const name = formData.get('name') as string;
+        await this.createPat(name);
+        createModal?.close();
+        createForm.reset();
+      });
+
+      closeToken?.addEventListener('click', () => tokenModal?.close());
+      copyToken?.addEventListener('click', async () => {
+        const tokenValue = this.querySelector('#token-value')?.textContent;
+        if (tokenValue) {
+          await navigator.clipboard.writeText(tokenValue);
+          if (copyToken) copyToken.textContent = this.t.copied;
+          setTimeout(() => {
+            if (copyToken) copyToken.textContent = this.t.copy;
+          }, 2000);
+        }
+      });
+    }
+
+    async loadPats() {
+      try {
+        const res = await fetch('/api/pat');
+        if (!res.ok) throw new Error('Failed to load PATs');
+        const data = await res.json();
+        this.renderPats(data.pats);
+      } catch (e) {
+        console.error('Failed to load PATs:', e);
+        this.renderPats([]);
+      }
+    }
+
+    renderPats(pats: PatInfo[]) {
+      const list = this.querySelector('#pat-list');
+      if (!list) return;
+
+      if (pats.length === 0) {
+        list.innerHTML = `<div class="pat-empty">${this.t.empty}</div>`;
+        return;
+      }
+
+      list.innerHTML = pats
+        .map(
+          (pat) => `
+        <div class="pat-item" data-id="${pat.id}">
+          <div class="pat-info">
+            <div class="pat-name">
+              <code class="pat-prefix">${pat.tokenPrefix}...</code>
+              <span>${pat.name}</span>
+            </div>
+            <div class="pat-meta">
+              <span>${this.t.created}: ${this.formatDate(pat.createdAt)}</span>
+              <span>${this.t.lastUsed}: ${pat.lastUsedAt ? this.formatDate(pat.lastUsedAt) : this.t.never}</span>
+            </div>
+          </div>
+          <button class="btn btn-danger btn-small delete-pat" data-id="${pat.id}">${this.t.delete}</button>
+        </div>
+      `,
+        )
+        .join('');
+
+      list.querySelectorAll('.delete-pat').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          const id = (e.target as HTMLElement).dataset.id;
+          if (id && confirm(this.t.deleteConfirm)) {
+            await this.deletePat(id);
+          }
+        });
+      });
+    }
+
+    formatDate(iso: string): string {
+      return new Date(iso).toLocaleDateString(this.dataset.lang === 'fr' ? 'fr-FR' : 'en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    }
+
+    async createPat(name: string) {
+      try {
+        const res = await fetch('/api/pat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        if (!res.ok) throw new Error('Failed to create PAT');
+        const data = await res.json();
+
+        // Show token in modal
+        const tokenModal = this.querySelector('#token-modal') as HTMLDialogElement;
+        const tokenValue = this.querySelector('#token-value');
+        if (tokenValue) tokenValue.textContent = data.token;
+        tokenModal?.showModal();
+
+        await this.loadPats();
+      } catch (e) {
+        console.error('Failed to create PAT:', e);
+      }
+    }
+
+    async deletePat(id: string) {
+      try {
+        const res = await fetch(`/api/pat/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete PAT');
+        await this.loadPats();
+      } catch (e) {
+        console.error('Failed to delete PAT:', e);
+      }
+    }
+  }
+
+  customElements.define('pat-manager', PatManager);
+</script>
+
+<style>
+  .pat-section {
+    background: var(--bg-layer-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-l);
+    padding: var(--spacing-xxl);
+    margin-bottom: var(--spacing-xxxl);
+  }
+
+  .pat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-xl);
+  }
+
+  .pat-header h2 {
+    font-size: var(--font-size-500);
+    font-weight: var(--font-weight-semibold);
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .pat-description {
+    font-size: var(--font-size-300);
+    color: var(--text-secondary);
+  }
+
+  .pat-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-m);
+  }
+
+  .pat-loading,
+  .pat-empty {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--text-tertiary);
+    font-size: var(--font-size-300);
+  }
+
+  .pat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-l);
+    background: var(--bg-layer-3);
+    border-radius: var(--radius-m);
+    gap: var(--spacing-l);
+  }
+
+  .pat-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .pat-name {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-m);
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .pat-name span {
+    font-weight: var(--font-weight-medium);
+  }
+
+  .pat-prefix {
+    font-size: var(--font-size-200);
+    background: var(--bg-layer-4);
+    padding: var(--spacing-xxs) var(--spacing-s);
+    border-radius: var(--radius-s);
+    color: var(--text-secondary);
+  }
+
+  .pat-meta {
+    display: flex;
+    gap: var(--spacing-xl);
+    font-size: var(--font-size-200);
+    color: var(--text-tertiary);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-s);
+    padding: var(--spacing-m) var(--spacing-xl);
+    border-radius: var(--radius-s);
+    font-size: var(--font-size-300);
+    font-weight: var(--font-weight-semibold);
+    transition: all 0.15s ease;
+    cursor: pointer;
+    text-decoration: none;
+    border: none;
+  }
+
+  .btn-primary {
+    background: var(--brand-primary);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    opacity: 0.9;
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+  }
+
+  .btn-secondary:hover {
+    background: var(--bg-layer-3);
+  }
+
+  .btn-danger {
+    background: transparent;
+    color: var(--text-error, #dc2626);
+    border: 1px solid var(--border-error, #dc2626);
+  }
+
+  .btn-danger:hover {
+    background: rgba(220, 38, 38, 0.1);
+  }
+
+  .btn-small {
+    padding: var(--spacing-s) var(--spacing-m);
+    font-size: var(--font-size-200);
+  }
+
+  .modal {
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-l);
+    background: var(--bg-layer-2);
+    max-width: 480px;
+    width: 90%;
+  }
+
+  .modal::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-content {
+    padding: var(--spacing-xxl);
+  }
+
+  .modal-content h3 {
+    font-size: var(--font-size-500);
+    font-weight: var(--font-weight-semibold);
+    margin-bottom: var(--spacing-xl);
+  }
+
+  .form-group {
+    margin-bottom: var(--spacing-xl);
+  }
+
+  .form-group label {
+    display: block;
+    font-size: var(--font-size-300);
+    font-weight: var(--font-weight-medium);
+    margin-bottom: var(--spacing-s);
+  }
+
+  .form-group input {
+    width: 100%;
+    padding: var(--spacing-m);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-s);
+    font-size: var(--font-size-300);
+    background: var(--bg-layer-3);
+    color: var(--text-primary);
+  }
+
+  .form-group input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-m);
+  }
+
+  .token-display {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-m);
+    padding: var(--spacing-m);
+    background: var(--bg-layer-3);
+    border-radius: var(--radius-s);
+    margin-bottom: var(--spacing-xl);
+    overflow-x: auto;
+  }
+
+  .token-display code {
+    flex: 1;
+    font-size: var(--font-size-200);
+    word-break: break-all;
+    color: var(--text-primary);
+  }
+
+  @media (max-width: 640px) {
+    .pat-item {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .pat-meta {
+      flex-direction: column;
+      gap: var(--spacing-xs);
+    }
+  }
+</style>

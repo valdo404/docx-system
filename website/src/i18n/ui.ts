@@ -32,10 +32,10 @@ export const ui = {
     // Chat demo
     'chat.user': '\u00ab\u00a0Mets \u00e0 jour le rapport T4 avec les nouveaux chiffres de ventes et reformate le r\u00e9sum\u00e9 ex\u00e9cutif.\u00a0\u00bb',
     'chat.assistant': 'C\u2019est fait\u00a0! J\u2019ai mis \u00e0 jour les chiffres de vente dans les 12\u00a0tableaux et reformaté le r\u00e9sum\u00e9 ex\u00e9cutif avec les nouveaux faits marquants. Le document est sauvegard\u00e9.',
-    'chat.file': 'Rapport-T4-2024.docx',
+    'chat.file': 'Rapport-T4-{{year}}.docx',
 
     // Problem
-    'problem.title': 'L\u2019\u00e9dition de documents est encore manuelle. En 2024.',
+    'problem.title': 'L\u2019édition de documents est encore manuelle. En {{year}}.',
     'problem.description': 'L\u2019IA sait \u00e9crire du code, analyser des donn\u00e9es et r\u00e9pondre \u00e0 des questions complexes. Mais pour vos documents Word\u00a0? Vous copiez, collez et formatez encore \u00e0 la main.',
     'problem.stat1.number': '5h+',
     'problem.stat1.label': 'par semaine pass\u00e9es \u00e0 formater des documents',
@@ -100,10 +100,27 @@ export const ui = {
     'dashboard.storage': 'Stockage',
     'dashboard.documents': 'Documents',
     'dashboard.sessions': 'Sessions MCP',
-    'dashboard.comingSoon': 'Bient\u00f4t disponible',
+    'dashboard.comingSoon': 'Bientôt disponible',
     'dashboard.tenantId': 'Identifiant tenant',
-    'dashboard.gcsPrefix': 'Pr\u00e9fixe GCS',
+    'dashboard.gcsPrefix': 'Préfixe GCS',
     'dashboard.of': 'sur',
+
+    // PAT
+    'pat.title': 'Tokens d\'accès personnel',
+    'pat.description': 'Créez des tokens pour connecter vos outils et agents IA.',
+    'pat.create': 'Créer un token',
+    'pat.name': 'Nom',
+    'pat.namePlaceholder': 'Mon token de production',
+    'pat.created': 'Créé le',
+    'pat.lastUsed': 'Dernière utilisation',
+    'pat.never': 'Jamais',
+    'pat.expires': 'Expire le',
+    'pat.noExpiry': 'Jamais',
+    'pat.delete': 'Supprimer',
+    'pat.deleteConfirm': 'Êtes-vous sûr de vouloir supprimer ce token ?',
+    'pat.empty': 'Aucun token créé',
+    'pat.copyWarning': 'Copiez ce token maintenant. Il ne sera plus affiché.',
+    'pat.copied': 'Copié !',
   },
   en: {
     // Nav
@@ -129,10 +146,10 @@ export const ui = {
     // Chat demo
     'chat.user': '"Update the Q4 report with new sales figures and format the executive summary."',
     'chat.assistant': 'Done! I\'ve updated the sales figures in all 12 tables and reformatted the executive summary with the new highlights. The document is saved.',
-    'chat.file': 'Q4-Report-2024.docx',
+    'chat.file': 'Q4-Report-{{year}}.docx',
 
     // Problem
-    'problem.title': 'Document editing is still manual. In 2024.',
+    'problem.title': 'Document editing is still manual. In {{year}}.',
     'problem.description': 'AI can write code, analyze data, and answer complex questions. But when it comes to your Word documents? You\'re still copying, pasting, and formatting by hand.',
     'problem.stat1.number': '5h+',
     'problem.stat1.label': 'per week spent on document formatting',
@@ -201,5 +218,22 @@ export const ui = {
     'dashboard.tenantId': 'Tenant ID',
     'dashboard.gcsPrefix': 'GCS prefix',
     'dashboard.of': 'of',
+
+    // PAT
+    'pat.title': 'Personal Access Tokens',
+    'pat.description': 'Create tokens to connect your tools and AI agents.',
+    'pat.create': 'Create token',
+    'pat.name': 'Name',
+    'pat.namePlaceholder': 'My production token',
+    'pat.created': 'Created',
+    'pat.lastUsed': 'Last used',
+    'pat.never': 'Never',
+    'pat.expires': 'Expires',
+    'pat.noExpiry': 'Never',
+    'pat.delete': 'Delete',
+    'pat.deleteConfirm': 'Are you sure you want to delete this token?',
+    'pat.empty': 'No tokens created',
+    'pat.copyWarning': 'Copy this token now. It won\'t be shown again.',
+    'pat.copied': 'Copied!',
   },
 } as const;
