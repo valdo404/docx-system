@@ -24,7 +24,7 @@ const initialText = inDashboard ? consoleCta : ctaText;
   <div class="doccy-bubble" id="doccy-bubble">
     <button class="doccy-close" id="doccy-close" aria-label="Close">&times;</button>
     <p id="doccy-message">{messages[0]}</p>
-    <a href={initialHref} class="doccy-btn" id="doccy-cta">{initialText}</a>
+    {!inDashboard && <a href={initialHref} class="doccy-btn" id="doccy-cta">{initialText}</a>}
   </div>
   <div class="doccy-character" id="doccy-character">
     <svg viewBox="0 0 100 160" fill="none" xmlns="http://www.w3.org/2000/svg" class="doccy-svg">
