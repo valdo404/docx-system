@@ -17,15 +17,6 @@ export function createAuth(env: Env) {
         clientId: env.OAUTH_GITHUB_CLIENT_ID,
         clientSecret: env.OAUTH_GITHUB_CLIENT_SECRET,
       },
-      google: {
-        clientId: env.OAUTH_GOOGLE_CLIENT_ID,
-        clientSecret: env.OAUTH_GOOGLE_CLIENT_SECRET,
-      },
-      microsoft: {
-        clientId: env.OAUTH_MICROSOFT_CLIENT_ID,
-        clientSecret: env.OAUTH_MICROSOFT_CLIENT_SECRET,
-        tenantId: env.OAUTH_MICROSOFT_TENANT_ID || 'common',
-      },
     },
     emailAndPassword: { enabled: false },
   });

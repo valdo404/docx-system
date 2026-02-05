@@ -8,10 +8,6 @@ import { useTranslations } from '../../i18n/utils';
 const t = useTranslations('en');
 const user = Astro.locals.user!;
 const tenant = Astro.locals.tenant!;
-
-const usedMB = (tenant.storageUsedBytes / 1024 / 1024).toFixed(1);
-const quotaMB = (tenant.storageQuotaBytes / 1024 / 1024).toFixed(0);
-const usagePercent = Math.round((tenant.storageUsedBytes / tenant.storageQuotaBytes) * 100);
 ---
 
 <Layout title={`${t('nav.dashboard')} — Docx System`}>
@@ -24,10 +20,7 @@ const usagePercent = Math.round((tenant.storageUsedBytes / tenant.storageQuotaBy
       <div class="cards">
         <div class="card">
           <h3>{t('dashboard.storage')}</h3>
-          <div class="storage-bar">
-            <div class="storage-fill" style={`width: ${usagePercent}%`}></div>
-          </div>
-          <p class="storage-text">{usedMB} MB {t('dashboard.of')} {quotaMB} MB</p>
+          <p class="coming-soon">{t('dashboard.comingSoon')}</p>
         </div>
 
         <div class="card">
@@ -45,10 +38,6 @@ const usagePercent = Math.round((tenant.storageUsedBytes / tenant.storageQuotaBy
         <div class="info-row">
           <span class="info-label">{t('dashboard.tenantId')}</span>
           <code>{tenant.id}</code>
-        </div>
-        <div class="info-row">
-          <span class="info-label">{t('dashboard.gcsPrefix')}</span>
-          <code>{tenant.gcsPrefix}</code>
         </div>
       </div>
 
@@ -97,26 +86,6 @@ const usagePercent = Math.round((tenant.storageUsedBytes / tenant.storageQuotaBy
     font-size: var(--font-size-400);
     font-weight: var(--font-weight-semibold);
     margin-bottom: var(--spacing-l);
-  }
-
-  .storage-bar {
-    height: 8px;
-    background: var(--bg-layer-3);
-    border-radius: var(--radius-circular);
-    overflow: hidden;
-    margin-bottom: var(--spacing-m);
-  }
-
-  .storage-fill {
-    height: 100%;
-    background: var(--brand-primary);
-    border-radius: var(--radius-circular);
-    transition: width 0.3s ease;
-  }
-
-  .storage-text {
-    font-size: var(--font-size-300);
-    color: var(--text-secondary);
   }
 
   .coming-soon {
