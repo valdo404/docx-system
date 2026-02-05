@@ -46,6 +46,11 @@ pub struct Config {
     /// R2 bucket name
     #[arg(long, env = "R2_BUCKET_NAME")]
     pub r2_bucket_name: Option<String>,
+
+    /// Parent process PID to watch. If set, server will exit when parent dies.
+    /// This enables fork/join semantics where the child server follows the parent lifecycle.
+    #[arg(long)]
+    pub parent_pid: Option<u32>,
 }
 
 impl Config {

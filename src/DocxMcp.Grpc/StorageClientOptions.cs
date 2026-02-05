@@ -40,18 +40,36 @@ public sealed class StorageClientOptions
     public TimeSpan DefaultCallTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Get effective Unix socket path.
+    /// Get effective socket/pipe path for IPC.
+    /// The path includes the current process PID to ensure uniqueness
+    /// and proper fork/join semantics (each parent gets its own child server).
+    /// On Windows, returns a named pipe path. On Unix, returns a socket path.
     /// </summary>
-    public string GetEffectiveUnixSocketPath()
+    public string GetEffectiveSocketPath()
     {
         if (UnixSocketPath is not null)
             return UnixSocketPath;
 
+        var pid = Environment.ProcessId;
+
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows named pipe - unique per process
+            return $@"\\.\pipe\docx-mcp-storage-{pid}";
+        }
+
+        // Unix socket - unique per process
+        var socketName = $"docx-mcp-storage-{pid}.sock";
         var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
         return runtimeDir is not null
-            ? Path.Combine(runtimeDir, "docx-mcp-storage.sock")
-            : "/tmp/docx-mcp-storage.sock";
+            ? Path.Combine(runtimeDir, socketName)
+            : Path.Combine("/tmp", socketName);
     }
+
+    /// <summary>
+    /// Check if we're using Windows named pipes.
+    /// </summary>
+    public bool IsWindowsNamedPipe => OperatingSystem.IsWindows() && UnixSocketPath is null;
 
     /// <summary>
     /// Create options from environment variables.

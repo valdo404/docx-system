@@ -8,6 +8,8 @@ use tracing::{debug, instrument, warn};
 use super::traits::{
     CheckpointInfo, SessionIndex, SessionInfo, StorageBackend, WalEntry,
 };
+#[cfg(test)]
+use super::traits::SessionIndexEntry;
 use crate::error::StorageError;
 
 /// Local filesystem storage backend.
@@ -779,31 +781,64 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_index_concurrent_updates_parallel() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_index_concurrent_updates_with_locking() {
+        use crate::lock::{FileLock, LockManager};
         use std::sync::Arc;
+        use std::time::Duration;
         use tokio::sync::Barrier;
 
-        // Test concurrent index updates (simulates the failing .NET test)
-        let (storage, _temp) = setup().await;
+        // Test concurrent index updates WITH locking (production pattern)
+        let (storage, temp) = setup().await;
         let storage = Arc::new(storage);
+        let lock_manager = Arc::new(FileLock::new(temp.path()));
         let tenant = "test-tenant";
 
-        let barrier = Arc::new(Barrier::new(10));
+        const NUM_TASKS: usize = 10;
+        let barrier = Arc::new(Barrier::new(NUM_TASKS));
         let mut handles = vec![];
 
-        // Spawn 10 concurrent tasks, each adding a session
-        for i in 0..10 {
+        // Spawn tasks, each adding a session WITH proper locking
+        for i in 0..NUM_TASKS {
             let storage = Arc::clone(&storage);
+            let lock_manager = Arc::clone(&lock_manager);
             let barrier = Arc::clone(&barrier);
             let session_id = format!("session-{}", i);
+            let holder_id = format!("holder-{}", i);
 
             let handle = tokio::spawn(async move {
                 // Wait for all tasks to be ready
                 barrier.wait().await;
 
+                // Acquire lock with retries (same pattern as service.rs)
+                let ttl = Duration::from_secs(30);
+                let mut acquired = false;
+                for attempt in 0..100 {
+                    if attempt > 0 {
+                        // Exponential backoff with jitter
+                        let delay = Duration::from_millis(10 + (attempt * 10) as u64);
+                        tokio::time::sleep(delay).await;
+                    }
+                    let result = lock_manager
+                        .acquire(tenant, "index", &holder_id, ttl)
+                        .await
+                        .expect("Lock acquire should not fail");
+                    if result.acquired {
+                        acquired = true;
+                        break;
+                    }
+                }
+
+                if !acquired {
+                    panic!("Task {} failed to acquire lock after 100 attempts", i);
+                }
+
                 // Load current index
-                let mut index = storage.load_index(tenant).await.unwrap().unwrap_or_default();
+                let mut index = storage
+                    .load_index(tenant)
+                    .await
+                    .expect("Load index failed")
+                    .unwrap_or_default();
 
                 // Add a session
                 index.sessions.insert(
@@ -817,8 +852,17 @@ mod tests {
                     },
                 );
 
-                // Save
-                storage.save_index(tenant, &index).await.unwrap();
+                // Save - ensure this completes before releasing lock
+                storage
+                    .save_index(tenant, &index)
+                    .await
+                    .expect("Save index failed");
+
+                // Release lock
+                lock_manager
+                    .release(tenant, "index", &holder_id)
+                    .await
+                    .expect("Release lock failed");
 
                 session_id
             });
@@ -829,34 +873,23 @@ mod tests {
         // Collect all session IDs
         let mut created_ids = vec![];
         for handle in handles {
-            created_ids.push(handle.await.unwrap());
+            let id = handle.await.expect("Task panicked");
+            created_ids.push(id);
         }
 
-        // Verify: WITHOUT locking, we expect some sessions to be lost
-        // This test documents the race condition behavior
+        // With proper locking, ALL sessions should be present
         let final_index = storage.load_index(tenant).await.unwrap().unwrap();
         let found_count = final_index.sessions.len();
 
-        println!(
-            "Created {} sessions, found {} in index (race condition expected)",
-            created_ids.len(),
-            found_count
-        );
-
-        // This will likely fail due to race conditions - that's expected!
-        // The test shows why distributed locking is needed
-        // In production, the .NET code uses WithLockedIndex to prevent this
-        if found_count < 10 {
-            println!("Race condition confirmed: only {} of 10 sessions in index", found_count);
-            let missing: Vec<_> = created_ids
+        assert_eq!(
+            found_count, NUM_TASKS,
+            "All {} sessions should be in index with proper locking. Found: {}. Missing: {:?}",
+            NUM_TASKS,
+            found_count,
+            created_ids
                 .iter()
                 .filter(|id| !final_index.sessions.contains_key(*id))
-                .collect();
-            println!("Missing sessions: {:?}", missing);
-        }
-
-        // For this test, we just verify that at least some sessions were saved
-        // (not all, due to race condition)
-        assert!(found_count > 0, "At least some sessions should be saved");
+                .collect::<Vec<_>>()
+        );
     }
 }

@@ -49,13 +49,6 @@ impl StorageServiceImpl {
             .filter(|id| !id.is_empty())
             .ok_or_else(|| Status::invalid_argument("tenant_id is required"))
     }
-
-    /// Split data into chunks for streaming.
-    fn chunk_data(&self, data: Vec<u8>) -> Vec<Vec<u8>> {
-        data.chunks(self.chunk_size)
-            .map(|c| c.to_vec())
-            .collect()
-    }
 }
 
 type StreamResult<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send>>;

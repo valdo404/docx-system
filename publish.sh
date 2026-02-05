@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Build NativeAOT binaries for all supported platforms.
-# Requires .NET 10 SDK.
+# Requires .NET 10 SDK and Rust toolchain.
 #
 # Usage:
 #   ./publish.sh              # Build for current platform
@@ -11,6 +11,7 @@ set -euo pipefail
 
 SERVER_PROJECT="src/DocxMcp/DocxMcp.csproj"
 CLI_PROJECT="src/DocxMcp.Cli/DocxMcp.Cli.csproj"
+STORAGE_CRATE="crates/docx-mcp-storage"
 OUTPUT_DIR="dist"
 CONFIG="Release"
 
@@ -21,6 +22,16 @@ declare -A TARGETS=(
     ["linux-arm64"]="linux-arm64"
     ["windows-x64"]="win-x64"
     ["windows-arm64"]="win-arm64"
+)
+
+# Rust target triples for cross-compilation
+declare -A RUST_TARGETS=(
+    ["macos-arm64"]="aarch64-apple-darwin"
+    ["macos-x64"]="x86_64-apple-darwin"
+    ["linux-x64"]="x86_64-unknown-linux-gnu"
+    ["linux-arm64"]="aarch64-unknown-linux-gnu"
+    ["windows-x64"]="x86_64-pc-windows-msvc"
+    ["windows-arm64"]="aarch64-pc-windows-msvc"
 )
 
 publish_project() {
@@ -53,6 +64,52 @@ publish_project() {
     fi
 }
 
+publish_rust_storage() {
+    local name="$1"
+    local out="$2"
+    local rust_target="${RUST_TARGETS[$name]}"
+    local current_target
+
+    # Detect current Rust target
+    local arch
+    arch="$(uname -m)"
+    case "$(uname -s)-$arch" in
+        Darwin-arm64) current_target="aarch64-apple-darwin" ;;
+        Darwin-x86_64) current_target="x86_64-apple-darwin" ;;
+        Linux-x86_64) current_target="x86_64-unknown-linux-gnu" ;;
+        Linux-aarch64) current_target="aarch64-unknown-linux-gnu" ;;
+        *) current_target="" ;;
+    esac
+
+    local binary_name="docx-mcp-storage"
+    [[ "$name" == windows-* ]] && binary_name="docx-mcp-storage.exe"
+
+    if [[ "$rust_target" == "$current_target" ]]; then
+        # Native build
+        echo "    Building Rust storage server (native)..."
+        cargo build --release --package docx-mcp-storage
+        cp "target/release/$binary_name" "$out/" 2>/dev/null || \
+            cp "target/release/docx-mcp-storage" "$out/$binary_name"
+    else
+        # Cross-compile (requires target installed)
+        if rustup target list --installed | grep -q "$rust_target"; then
+            echo "    Building Rust storage server (cross: $rust_target)..."
+            cargo build --release --package docx-mcp-storage --target "$rust_target"
+            cp "target/$rust_target/release/$binary_name" "$out/" 2>/dev/null || \
+                cp "target/$rust_target/release/docx-mcp-storage" "$out/$binary_name"
+        else
+            echo "    SKIP: Rust target $rust_target not installed (run: rustup target add $rust_target)"
+            return 0
+        fi
+    fi
+
+    if [[ -f "$out/$binary_name" ]]; then
+        local size
+        size=$(du -sh "$out/$binary_name" | cut -f1)
+        echo "    Built: $out/$binary_name ($size)"
+    fi
+}
+
 publish_target() {
     local name="$1"
     local rid="${TARGETS[$name]}"
@@ -65,11 +122,35 @@ publish_target() {
         export LIBRARY_PATH="/opt/homebrew/lib:${LIBRARY_PATH:-}"
     fi
 
+    echo "==> Publishing docx-mcp-storage ($name)..."
+    publish_rust_storage "$name" "$out"
+
     echo "==> Publishing docx-mcp ($name / $rid)..."
     publish_project "$SERVER_PROJECT" "docx-mcp" "$rid" "$out"
 
     echo "==> Publishing docx-cli ($name / $rid)..."
     publish_project "$CLI_PROJECT" "docx-cli" "$rid" "$out"
+}
+
+publish_rust_only() {
+    local rid_name="$1"
+    local out="$OUTPUT_DIR/$rid_name"
+    mkdir -p "$out"
+
+    echo "==> Publishing docx-mcp-storage ($rid_name)..."
+    publish_rust_storage "$rid_name" "$out"
+}
+
+detect_current_platform() {
+    local arch
+    arch="$(uname -m)"
+    case "$(uname -s)-$arch" in
+        Darwin-arm64) echo "macos-arm64" ;;
+        Darwin-x86_64) echo "macos-x64" ;;
+        Linux-x86_64) echo "linux-x64" ;;
+        Linux-aarch64) echo "linux-arm64" ;;
+        *) echo ""; return 1 ;;
+    esac
 }
 
 main() {
@@ -82,23 +163,21 @@ main() {
         for name in "${!TARGETS[@]}"; do
             publish_target "$name"
         done
+    elif [[ "$target" == "rust" ]]; then
+        # Build only Rust storage server for current platform
+        local rid_name
+        rid_name=$(detect_current_platform) || { echo "Unsupported platform"; exit 1; }
+        publish_rust_only "$rid_name"
     elif [[ "$target" == "current" ]]; then
         # Detect current platform
-        local arch rid_name
-        arch="$(uname -m)"
-        case "$(uname -s)-$arch" in
-            Darwin-arm64) rid_name="macos-arm64" ;;
-            Darwin-x86_64) rid_name="macos-x64" ;;
-            Linux-x86_64) rid_name="linux-x64" ;;
-            Linux-aarch64) rid_name="linux-arm64" ;;
-            *) echo "Unsupported platform: $(uname -s)-$arch"; exit 1 ;;
-        esac
+        local rid_name
+        rid_name=$(detect_current_platform) || { echo "Unsupported platform: $(uname -s)-$(uname -m)"; exit 1; }
         publish_target "$rid_name"
     elif [[ -n "${TARGETS[$target]+x}" ]]; then
         publish_target "$target"
     else
         echo "Unknown target: $target"
-        echo "Available: ${!TARGETS[*]} all current"
+        echo "Available: ${!TARGETS[*]} all current rust"
         exit 1
     fi
 

@@ -49,6 +49,17 @@ clap.workspace = true
 # Paths
 dirs = "6"
 
+# File locking
+fs2 = "0.4"
+dashmap = "6"
+
+# Platform-specific for parent process watching
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
 [build-dependencies]
 tonic-build = "0.13"
 

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use clap::Parser;
 use tokio::net::UnixListener;
 use tokio::signal;
+use tokio::sync::watch;
 use tonic::transport::Server;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -33,6 +34,9 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting docx-mcp-storage server");
     info!("  Transport: {}", config.transport);
     info!("  Backend: {}", config.storage_backend);
+    if let Some(ppid) = config.parent_pid {
+        info!("  Parent PID: {} (will exit when parent dies)", ppid);
+    }
 
     // Create storage backend
     let storage: Arc<dyn crate::storage::StorageBackend> = match config.storage_backend {
@@ -63,6 +67,16 @@ async fn main() -> anyhow::Result<()> {
     let service = StorageServiceImpl::new(storage, lock_manager);
     let svc = StorageServiceServer::new(service);
 
+    // Set up parent death signal using OS-native mechanisms
+    setup_parent_death_signal(config.parent_pid);
+
+    // Create shutdown signal (watches for Ctrl+C and SIGTERM)
+    // Parent death is handled by OS-native signal delivery (prctl/kqueue)
+    let mut shutdown_rx = create_shutdown_signal();
+    let shutdown_future = async move {
+        let _ = shutdown_rx.wait_for(|&v| v).await;
+    };
+
     // Start server based on transport
     match config.transport {
         Transport::Tcp => {
@@ -71,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
 
             Server::builder()
                 .add_service(svc)
-                .serve_with_shutdown(addr, shutdown_signal())
+                .serve_with_shutdown(addr, shutdown_future)
                 .await?;
         }
         Transport::Unix => {
@@ -94,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
 
             Server::builder()
                 .add_service(svc)
-                .serve_with_incoming_shutdown(uds_stream, shutdown_signal())
+                .serve_with_incoming_shutdown(uds_stream, shutdown_future)
                 .await?;
 
             // Clean up socket on shutdown
@@ -108,30 +122,118 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("Failed to install Ctrl+C handler");
-    };
+/// Set up parent death monitoring.
+/// The parent process (.NET) will kill us on exit via ProcessExit event.
+/// This is a fallback safety net that polls for parent death.
+fn setup_parent_death_signal(parent_pid: Option<u32>) {
+    let Some(ppid) = parent_pid else { return };
 
-    #[cfg(unix)]
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("Failed to install SIGTERM handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {
-            info!("Received Ctrl+C, initiating shutdown");
-        },
-        _ = terminate => {
-            info!("Received SIGTERM, initiating shutdown");
-        },
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: use prctl for immediate notification
+        setup_parent_death_signal_linux(ppid);
     }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        // macOS/Windows: poll as fallback (parent will kill us on exit)
+        setup_parent_death_poll(ppid);
+    }
+}
+
+/// Linux: Use prctl to receive SIGTERM when parent dies.
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+fn setup_parent_death_signal_linux(parent_pid: u32) {
+    // SAFETY: prctl and kill are well-defined syscalls
+    unsafe {
+        // Check if parent is already dead
+        if libc::kill(parent_pid as i32, 0) != 0 {
+            info!("Parent process {} already dead at startup, terminating", parent_pid);
+            std::process::exit(0);
+        }
+
+        // Set up parent death signal
+        const PR_SET_PDEATHSIG: libc::c_int = 1;
+        libc::prctl(PR_SET_PDEATHSIG, libc::SIGTERM);
+    }
+    info!("Configured prctl(PR_SET_PDEATHSIG, SIGTERM) for parent {} death notification", parent_pid);
+}
+
+/// Simple polling fallback for parent death detection.
+/// The parent (.NET) will kill us via ProcessExit, this is just a safety net.
+#[cfg(not(target_os = "linux"))]
+#[allow(unsafe_code)]
+fn setup_parent_death_poll(parent_pid: u32) {
+    use std::thread;
+    use std::time::Duration;
+
+    thread::spawn(move || {
+        info!("Monitoring parent process {} (poll fallback)", parent_pid);
+
+        loop {
+            thread::sleep(Duration::from_secs(2));
+
+            #[cfg(unix)]
+            let alive = unsafe { libc::kill(parent_pid as i32, 0) == 0 };
+
+            #[cfg(windows)]
+            let alive = {
+                let handle = unsafe {
+                    windows_sys::Win32::System::Threading::OpenProcess(
+                        windows_sys::Win32::System::Threading::SYNCHRONIZE,
+                        0,
+                        parent_pid,
+                    )
+                };
+                if !handle.is_null() {
+                    unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
+                    true
+                } else {
+                    false
+                }
+            };
+
+            if !alive {
+                info!("Parent process {} exited, terminating", parent_pid);
+                std::process::exit(0);
+            }
+        }
+    });
+}
+
+/// Create a shutdown signal that triggers on Ctrl+C or SIGTERM.
+/// Parent death is handled separately via OS-native mechanisms.
+fn create_shutdown_signal() -> watch::Receiver<bool> {
+    let (tx, rx) = watch::channel(false);
+
+    tokio::spawn(async move {
+        let ctrl_c = async {
+            signal::ctrl_c()
+                .await
+                .expect("Failed to install Ctrl+C handler");
+            info!("Received Ctrl+C, initiating shutdown");
+        };
+
+        #[cfg(unix)]
+        let terminate = async {
+            signal::unix::signal(signal::unix::SignalKind::terminate())
+                .expect("Failed to install SIGTERM handler")
+                .recv()
+                .await;
+            info!("Received SIGTERM, initiating shutdown");
+        };
+
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = terminate => {},
+        }
+
+        let _ = tx.send(true);
+    });
+
+    rx
 }

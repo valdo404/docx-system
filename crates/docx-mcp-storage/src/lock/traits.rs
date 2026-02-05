@@ -9,41 +9,29 @@ use crate::error::StorageError;
 pub struct LockAcquireResult {
     /// Whether the lock was acquired.
     pub acquired: bool,
-    /// If not acquired, who currently holds the lock.
-    pub current_holder: Option<String>,
-    /// Lock expiration timestamp (Unix epoch seconds).
-    pub expires_at: i64,
 }
 
-/// Result of a lock release attempt.
-#[derive(Debug, Clone)]
-pub struct LockReleaseResult {
-    /// Whether the lock was released.
-    pub released: bool,
-    /// Reason: "ok", "not_owner", "not_found", "expired"
-    pub reason: String,
-}
+impl LockAcquireResult {
+    /// Create a successful acquisition result.
+    pub fn acquired() -> Self {
+        Self { acquired: true }
+    }
 
-/// Result of a lock renewal attempt.
-#[derive(Debug, Clone)]
-pub struct LockRenewResult {
-    /// Whether the lock was renewed.
-    pub renewed: bool,
-    /// New expiration timestamp.
-    pub expires_at: i64,
-    /// Reason: "ok", "not_owner", "not_found"
-    pub reason: String,
+    /// Create a failed acquisition result (lock held by another).
+    pub fn not_acquired() -> Self {
+        Self { acquired: false }
+    }
 }
 
 /// Lock manager abstraction for tenant-aware distributed locking.
 ///
 /// Locks are on the pair `(tenant_id, resource_id)` to ensure tenant isolation.
 /// The maximum number of concurrent locks = T tenants × F files per tenant.
+///
+/// Note: This is used internally by atomic index operations. Locking is not
+/// exposed to clients - the server handles it transparently.
 #[async_trait]
 pub trait LockManager: Send + Sync {
-    /// Returns the lock manager identifier (e.g., "file", "kv").
-    fn lock_type(&self) -> &'static str;
-
     /// Attempt to acquire a lock on `(tenant_id, resource_id)`.
     ///
     /// # Arguments
@@ -65,21 +53,11 @@ pub trait LockManager: Send + Sync {
     /// Release a lock.
     ///
     /// The lock is only released if `holder_id` matches the current holder.
+    /// Silently succeeds if the lock doesn't exist or is held by someone else.
     async fn release(
         &self,
         tenant_id: &str,
         resource_id: &str,
         holder_id: &str,
-    ) -> Result<LockReleaseResult, StorageError>;
-
-    /// Renew a lock's TTL.
-    ///
-    /// The lock is only renewed if `holder_id` matches the current holder.
-    async fn renew(
-        &self,
-        tenant_id: &str,
-        resource_id: &str,
-        holder_id: &str,
-        ttl: Duration,
-    ) -> Result<LockRenewResult, StorageError>;
+    ) -> Result<(), StorageError>;
 }
