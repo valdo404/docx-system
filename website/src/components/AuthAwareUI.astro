@@ -27,35 +27,43 @@ const loginPath = lang === 'fr' ? '/connexion' : '/en/login';
       const login = this.dataset.login!;
       const lang = this.dataset.lang as 'fr' | 'en';
 
+      let user = null;
+
       try {
         const session = await authClient.getSession();
-        const user = session?.data?.user;
+        user = session?.data?.user;
+      } catch (e) {
+        console.debug('Auth check failed:', e);
+      }
 
-        // Update avatar slot
-        const avatarSlot = this.querySelector('[data-auth-avatar]');
-        if (avatarSlot && user) {
+      // Update avatar slot
+      const avatarSlot = this.querySelector('[data-auth-avatar]');
+      if (avatarSlot) {
+        if (user) {
           const initials = this.getInitials(user.name || user.email || '?');
           avatarSlot.innerHTML = `
             <a href="${dashboard}" class="user-avatar" title="${user.name || user.email}">
               ${initials}
             </a>
           `;
+        } else {
+          // Show login link when not authenticated
+          const loginText = lang === 'fr' ? 'Connexion' : 'Log in';
+          avatarSlot.innerHTML = `
+            <a href="${login}" class="nav-login-link">${loginText}</a>
+          `;
         }
+      }
 
-        // Update CTA slots
+      // Update CTA slots - only change if authenticated
+      if (user) {
         this.querySelectorAll('[data-auth-cta]').forEach(cta => {
           const link = cta.querySelector('a');
-          if (link && user) {
+          if (link) {
             link.href = dashboard;
             link.textContent = lang === 'fr' ? 'Accéder à la console' : 'Access console';
-            // Remove GitHub icon if present
-            const svg = link.querySelector('svg');
-            if (svg) svg.remove();
           }
         });
-
-      } catch (e) {
-        console.debug('Auth check failed:', e);
       }
     }
 
@@ -85,6 +93,17 @@ const loginPath = lang === 'fr' ? '/connexion' : '/en/login';
 
   .user-avatar:hover {
     opacity: 0.9;
+    text-decoration: none;
+  }
+
+  .nav-login-link {
+    color: var(--text-secondary);
+    font-size: var(--font-size-300);
+    transition: color 0.2s;
+  }
+
+  .nav-login-link:hover {
+    color: var(--text-primary);
     text-decoration: none;
   }
 </style>
