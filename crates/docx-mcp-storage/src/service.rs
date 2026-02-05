@@ -42,12 +42,12 @@ impl StorageServiceImpl {
         }
     }
 
-    /// Extract tenant_id from request, returning error if missing.
+    /// Extract tenant_id from request context.
+    /// Empty string is allowed for backward compatibility with legacy paths.
     fn get_tenant_id(context: Option<&TenantContext>) -> Result<&str, Status> {
         context
             .map(|c| c.tenant_id.as_str())
-            .filter(|id| !id.is_empty())
-            .ok_or_else(|| Status::invalid_argument("tenant_id is required"))
+            .ok_or_else(|| Status::invalid_argument("tenant context is required"))
     }
 }
 
@@ -146,8 +146,7 @@ impl StorageService for StorageServiceImpl {
         }
 
         let tenant_id = tenant_id
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| Status::invalid_argument("tenant_id is required in first chunk"))?;
+            .ok_or_else(|| Status::invalid_argument("tenant context is required in first chunk"))?;
         let session_id = session_id
             .filter(|s| !s.is_empty())
             .ok_or_else(|| Status::invalid_argument("session_id is required in first chunk"))?;
@@ -295,15 +294,18 @@ impl StorageService for StorageServiceImpl {
                 .map_err(Status::from)?
                 .unwrap_or_default();
 
-            let already_exists = index.sessions.contains_key(&session_id);
+            let already_exists = index.contains(&session_id);
             if !already_exists {
-                index.sessions.insert(session_id.clone(), crate::storage::SessionIndexEntry {
+                index.upsert(crate::storage::SessionIndexEntry {
+                    id: session_id.clone(),
                     source_path: if entry.source_path.is_empty() { None } else { Some(entry.source_path) },
                     created_at: chrono::DateTime::from_timestamp(entry.created_at_unix, 0)
                         .unwrap_or_else(chrono::Utc::now),
-                    modified_at: chrono::DateTime::from_timestamp(entry.modified_at_unix, 0)
+                    last_modified_at: chrono::DateTime::from_timestamp(entry.modified_at_unix, 0)
                         .unwrap_or_else(chrono::Utc::now),
-                    wal_position: entry.wal_position,
+                    docx_file: Some(format!("{}.docx", session_id)),
+                    wal_count: entry.wal_position,
+                    cursor_position: entry.wal_position,
                     checkpoint_positions: entry.checkpoint_positions,
                 });
                 self.storage.save_index(tenant_id, &index).await.map_err(Status::from)?;
@@ -359,17 +361,18 @@ impl StorageService for StorageServiceImpl {
                 .map_err(Status::from)?
                 .unwrap_or_default();
 
-            let not_found = !index.sessions.contains_key(&session_id);
+            let not_found = !index.contains(&session_id);
             if !not_found {
-                let entry = index.sessions.get_mut(&session_id).unwrap();
+                let entry = index.get_mut(&session_id).unwrap();
 
                 // Update optional fields
                 if let Some(modified_at) = req.modified_at_unix {
-                    entry.modified_at = chrono::DateTime::from_timestamp(modified_at, 0)
+                    entry.last_modified_at = chrono::DateTime::from_timestamp(modified_at, 0)
                         .unwrap_or_else(chrono::Utc::now);
                 }
                 if let Some(wal_position) = req.wal_position {
-                    entry.wal_position = wal_position;
+                    entry.wal_count = wal_position;
+                    entry.cursor_position = wal_position;
                 }
 
                 // Add checkpoint positions
@@ -438,7 +441,7 @@ impl StorageService for StorageServiceImpl {
                 .map_err(Status::from)?
                 .unwrap_or_default();
 
-            let existed = index.sessions.remove(&session_id).is_some();
+            let existed = index.remove(&session_id).is_some();
             if existed {
                 self.storage.save_index(tenant_id, &index).await.map_err(Status::from)?;
             }
@@ -577,8 +580,7 @@ impl StorageService for StorageServiceImpl {
         }
 
         let tenant_id = tenant_id
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| Status::invalid_argument("tenant_id is required in first chunk"))?;
+            .ok_or_else(|| Status::invalid_argument("tenant context is required in first chunk"))?;
         let session_id = session_id
             .filter(|s| !s.is_empty())
             .ok_or_else(|| Status::invalid_argument("session_id is required in first chunk"))?;

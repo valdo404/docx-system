@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use tokio::fs;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tracing::{debug, instrument, warn};
 
 use super::traits::{
@@ -29,12 +28,49 @@ pub struct LocalStorage {
     base_dir: PathBuf,
 }
 
+/// ZIP file signature (PK\x03\x04)
+const ZIP_SIGNATURE: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
+
+/// Length of the header prefix used by .NET's memory-mapped file format.
+/// The .NET code writes an 8-byte little-endian length prefix before DOCX data.
+const DOTNET_HEADER_LEN: usize = 8;
+
 impl LocalStorage {
     /// Create a new LocalStorage with the given base directory.
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
         }
+    }
+
+    /// Strip the .NET header prefix if present.
+    ///
+    /// The .NET code writes session/checkpoint files with an 8-byte length prefix
+    /// (little-endian u64) before the actual DOCX content. This function detects
+    /// and strips that prefix if present.
+    ///
+    /// Detection logic:
+    /// - If file starts with ZIP signature (PK\x03\x04), return as-is
+    /// - If bytes 8-11 are ZIP signature, strip first 8 bytes
+    fn strip_dotnet_header(data: Vec<u8>) -> Vec<u8> {
+        // Empty or too small for detection
+        if data.len() < DOTNET_HEADER_LEN + ZIP_SIGNATURE.len() {
+            return data;
+        }
+
+        // Check if file already starts with ZIP signature (no header)
+        if data[..ZIP_SIGNATURE.len()] == ZIP_SIGNATURE {
+            return data;
+        }
+
+        // Check if ZIP signature is at offset 8 (has .NET header prefix)
+        if data[DOTNET_HEADER_LEN..DOTNET_HEADER_LEN + ZIP_SIGNATURE.len()] == ZIP_SIGNATURE {
+            debug!("Detected .NET header prefix, stripping {} bytes", DOTNET_HEADER_LEN);
+            return data[DOTNET_HEADER_LEN..].to_vec();
+        }
+
+        // Unknown format, return as-is
+        data
     }
 
     /// Get the sessions directory for a tenant.
@@ -94,7 +130,14 @@ impl StorageBackend for LocalStorage {
         let path = self.session_path(tenant_id, session_id);
         match fs::read(&path).await {
             Ok(data) => {
-                debug!("Loaded session {} ({} bytes)", session_id, data.len());
+                let original_len = data.len();
+                let data = Self::strip_dotnet_header(data);
+                debug!(
+                    "Loaded session {} ({} bytes, stripped {} bytes)",
+                    session_id,
+                    data.len(),
+                    original_len - data.len()
+                );
                 Ok(Some(data))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -300,35 +343,59 @@ impl StorageBackend for LocalStorage {
         self.ensure_sessions_dir(tenant_id).await?;
         let path = self.wal_path(tenant_id, session_id);
 
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .await
-            .map_err(|e| StorageError::Io(format!("Failed to open WAL {}: {}", path.display(), e)))?;
+        // .NET MappedWal format:
+        // - 8 bytes: little-endian i64 = data length (NOT including header)
+        // - JSONL data: each entry is a JSON line ending with \n
+        // - Remaining bytes: unused padding (memory-mapped file pre-allocated)
 
+        // Read existing WAL or create new
+        let mut wal_data = match fs::read(&path).await {
+            Ok(data) if data.len() >= 8 => {
+                // Parse header to get data length (NOT including header)
+                let data_len = i64::from_le_bytes(data[..8].try_into().unwrap()) as usize;
+                // Total used = header (8) + data_len
+                let used_len = 8 + data_len;
+                // Truncate to actual used data
+                let mut truncated = data;
+                truncated.truncate(used_len.min(truncated.len()));
+                truncated
+            }
+            Ok(_) | Err(_) => {
+                // New file - start with 8-byte header (data_len = 0)
+                vec![0u8; 8]
+            }
+        };
+
+        // Append new entries as JSONL (each line ends with \n)
         let mut last_position = 0u64;
         for entry in entries {
-            let line = serde_json::to_string(entry).map_err(|e| {
-                StorageError::Serialization(format!("Failed to serialize WAL entry: {}", e))
-            })?;
-            file.write_all(line.as_bytes()).await.map_err(|e| {
-                StorageError::Io(format!("Failed to write WAL: {}", e))
-            })?;
-            file.write_all(b"\n").await.map_err(|e| {
-                StorageError::Io(format!("Failed to write WAL newline: {}", e))
-            })?;
+            // Write the raw .NET WalEntry JSON bytes
+            wal_data.extend_from_slice(&entry.patch_json);
+            // Ensure line ends with newline
+            if !entry.patch_json.ends_with(b"\n") {
+                wal_data.push(b'\n');
+            }
             last_position = entry.position;
         }
 
-        file.flush().await.map_err(|e| {
-            StorageError::Io(format!("Failed to flush WAL: {}", e))
+        // Update header with data length (excluding header itself)
+        let data_len = (wal_data.len() - 8) as i64;
+        wal_data[..8].copy_from_slice(&data_len.to_le_bytes());
+
+        // Write atomically
+        let temp_path = path.with_extension("wal.tmp");
+        fs::write(&temp_path, &wal_data).await.map_err(|e| {
+            StorageError::Io(format!("Failed to write WAL: {}", e))
+        })?;
+        fs::rename(&temp_path, &path).await.map_err(|e| {
+            StorageError::Io(format!("Failed to rename WAL: {}", e))
         })?;
 
         debug!(
-            "Appended {} WAL entries, last position: {}",
+            "Appended {} WAL entries, last position: {}, data_len: {}",
             entries.len(),
-            last_position
+            last_position,
+            data_len
         );
         Ok(last_position)
     }
@@ -343,52 +410,102 @@ impl StorageBackend for LocalStorage {
     ) -> Result<(Vec<WalEntry>, bool), StorageError> {
         let path = self.wal_path(tenant_id, session_id);
 
-        let file = match fs::File::open(&path).await {
-            Ok(f) => f,
+        // Read raw bytes
+        let raw_data = match fs::read(&path).await {
+            Ok(data) => data,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Ok((vec![], false));
             }
             Err(e) => {
                 return Err(StorageError::Io(format!(
-                    "Failed to open WAL {}: {}",
+                    "Failed to read WAL {}: {}",
                     path.display(),
                     e
                 )));
             }
         };
 
-        let reader = BufReader::new(file);
-        let mut lines = reader.lines();
+        // Need at least 8 bytes for header
+        if raw_data.len() < 8 {
+            return Ok((vec![], false));
+        }
+
+        // .NET MappedWal format:
+        // - 8 bytes: little-endian i64 = data length (NOT including header)
+        // - JSONL data: each entry is a JSON line ending with \n
+        let data_len = i64::from_le_bytes(raw_data[..8].try_into().unwrap()) as usize;
+
+        // Sanity check
+        if data_len == 0 {
+            return Ok((vec![], false));
+        }
+        if 8 + data_len > raw_data.len() {
+            debug!(
+                "WAL {} has invalid header (data_len={}, file_size={}), using file size",
+                path.display(),
+                data_len,
+                raw_data.len()
+            );
+        }
+
+        // Extract JSONL portion
+        let end = (8 + data_len).min(raw_data.len());
+        let jsonl_data = &raw_data[8..end];
+
+        // Parse as UTF-8
+        let content = std::str::from_utf8(jsonl_data).map_err(|e| {
+            StorageError::Io(format!("WAL {} is not valid UTF-8: {}", path.display(), e))
+        })?;
+
+        // Parse JSONL - each line is a .NET WalEntry JSON
+        // Position is 1-indexed (line 1 = position 1)
         let mut entries = Vec::new();
         let limit = limit.unwrap_or(u64::MAX);
+        let mut position = 1u64;
 
-        while let Some(line) = lines.next_line().await.map_err(|e| {
-            StorageError::Io(format!("Failed to read WAL line: {}", e))
-        })? {
-            if line.trim().is_empty() {
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
                 continue;
             }
 
-            let entry: WalEntry = serde_json::from_str(&line).map_err(|e| {
-                StorageError::Serialization(format!("Failed to parse WAL entry: {}", e))
-            })?;
+            if position >= from_position {
+                // Parse to extract timestamp
+                let value: serde_json::Value = serde_json::from_str(line).map_err(|e| {
+                    StorageError::Serialization(format!(
+                        "Failed to parse WAL entry at position {}: {}",
+                        position, e
+                    ))
+                })?;
 
-            if entry.position >= from_position {
-                entries.push(entry);
+                let timestamp = value.get("timestamp")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(chrono::Utc::now);
+
+                entries.push(WalEntry {
+                    position,
+                    operation: String::new(),
+                    path: String::new(),
+                    patch_json: line.as_bytes().to_vec(),
+                    timestamp,
+                });
+
                 if entries.len() as u64 >= limit {
-                    // Check if there are more
-                    let has_more = lines.next_line().await.map_err(|e| {
-                        StorageError::Io(format!("Failed to check for more WAL: {}", e))
-                    })?.is_some();
-                    return Ok((entries, has_more));
+                    return Ok((entries, true)); // might have more
                 }
             }
+
+            position += 1;
         }
 
         debug!(
-            "Read {} WAL entries from position {}",
+            "Read {} WAL entries from position {} (data_len={}, total_entries={})",
             entries.len(),
-            from_position
+            from_position,
+            data_len,
+            position - 1
         );
         Ok((entries, false))
     }
@@ -418,35 +535,35 @@ impl StorageBackend for LocalStorage {
             return Ok(0);
         }
 
-        // Rewrite WAL with only kept entries
+        // Rewrite WAL with only kept entries in .NET JSONL format
+        // Format: 8-byte header (data length NOT including header) + JSONL data
         let path = self.wal_path(tenant_id, session_id);
-        let temp_path = path.with_extension("wal.tmp");
 
-        let mut file = fs::File::create(&temp_path).await.map_err(|e| {
-            StorageError::Io(format!("Failed to create temp WAL: {}", e))
-        })?;
+        let mut wal_data = vec![0u8; 8]; // Header placeholder
 
         for entry in &to_keep {
-            let line = serde_json::to_string(entry).map_err(|e| {
-                StorageError::Serialization(format!("Failed to serialize WAL entry: {}", e))
-            })?;
-            file.write_all(line.as_bytes()).await.map_err(|e| {
-                StorageError::Io(format!("Failed to write WAL: {}", e))
-            })?;
-            file.write_all(b"\n").await.map_err(|e| {
-                StorageError::Io(format!("Failed to write WAL newline: {}", e))
-            })?;
+            // Write raw patch_json bytes (the .NET WalEntry JSON)
+            wal_data.extend_from_slice(&entry.patch_json);
+            // Ensure line ends with newline
+            if !entry.patch_json.ends_with(b"\n") {
+                wal_data.push(b'\n');
+            }
         }
 
-        file.flush().await.map_err(|e| {
-            StorageError::Io(format!("Failed to flush temp WAL: {}", e))
-        })?;
+        // Update header with data length (excluding header itself)
+        let data_len = (wal_data.len() - 8) as i64;
+        wal_data[..8].copy_from_slice(&data_len.to_le_bytes());
 
+        // Write atomically
+        let temp_path = path.with_extension("wal.tmp");
+        fs::write(&temp_path, &wal_data).await.map_err(|e| {
+            StorageError::Io(format!("Failed to write WAL: {}", e))
+        })?;
         fs::rename(&temp_path, &path).await.map_err(|e| {
-            StorageError::Io(format!("Failed to rename temp WAL: {}", e))
+            StorageError::Io(format!("Failed to rename WAL: {}", e))
         })?;
 
-        debug!("Truncated WAL, removed {} entries", removed_count);
+        debug!("Truncated WAL, removed {} entries, kept {}", removed_count, to_keep.len());
         Ok(removed_count)
     }
 
@@ -497,6 +614,14 @@ impl StorageBackend for LocalStorage {
                 let data = fs::read(&path).await.map_err(|e| {
                     StorageError::Io(format!("Failed to read checkpoint: {}", e))
                 })?;
+                let original_len = data.len();
+                let data = Self::strip_dotnet_header(data);
+                debug!(
+                    "Loaded latest checkpoint at position {} ({} bytes, stripped {} bytes)",
+                    latest.position,
+                    data.len(),
+                    original_len - data.len()
+                );
                 return Ok(Some((data, latest.position)));
             }
             return Ok(None);
@@ -505,10 +630,13 @@ impl StorageBackend for LocalStorage {
         let path = self.checkpoint_path(tenant_id, session_id, position);
         match fs::read(&path).await {
             Ok(data) => {
+                let original_len = data.len();
+                let data = Self::strip_dotnet_header(data);
                 debug!(
-                    "Loaded checkpoint at position {} ({} bytes)",
+                    "Loaded checkpoint at position {} ({} bytes, stripped {} bytes)",
                     position,
-                    data.len()
+                    data.len(),
+                    original_len - data.len()
                 );
                 Ok(Some((data, position)))
             }
@@ -722,24 +850,24 @@ mod tests {
 
         // Create and save index with sessions
         let mut index = SessionIndex::default();
-        index.sessions.insert(
-            "session-1".to_string(),
-            SessionIndexEntry {
-                source_path: Some("/path/to/doc.docx".to_string()),
-                created_at: chrono::Utc::now(),
-                modified_at: chrono::Utc::now(),
-                wal_position: 5,
-                checkpoint_positions: vec![],
-            },
-        );
+        index.upsert(SessionIndexEntry {
+            id: "session-1".to_string(),
+            source_path: Some("/path/to/doc.docx".to_string()),
+            created_at: chrono::Utc::now(),
+            last_modified_at: chrono::Utc::now(),
+            docx_file: Some("session-1.docx".to_string()),
+            wal_count: 5,
+            cursor_position: 5,
+            checkpoint_positions: vec![],
+        });
 
         storage.save_index(tenant, &index).await.unwrap();
 
         // Load and verify
         let loaded = storage.load_index(tenant).await.unwrap().unwrap();
         assert_eq!(loaded.sessions.len(), 1);
-        assert!(loaded.sessions.contains_key("session-1"));
-        assert_eq!(loaded.sessions["session-1"].wal_position, 5);
+        assert!(loaded.contains("session-1"));
+        assert_eq!(loaded.get("session-1").unwrap().wal_count, 5);
     }
 
     #[tokio::test]
@@ -755,16 +883,16 @@ mod tests {
 
             // Add a session
             let session_id = format!("session-{}", i);
-            index.sessions.insert(
-                session_id,
-                SessionIndexEntry {
-                    source_path: None,
-                    created_at: chrono::Utc::now(),
-                    modified_at: chrono::Utc::now(),
-                    wal_position: 0,
-                    checkpoint_positions: vec![],
-                },
-            );
+            index.upsert(SessionIndexEntry {
+                id: session_id,
+                source_path: None,
+                created_at: chrono::Utc::now(),
+                last_modified_at: chrono::Utc::now(),
+                docx_file: None,
+                wal_count: 0,
+                cursor_position: 0,
+                checkpoint_positions: vec![],
+            });
 
             // Save
             storage.save_index(tenant, &index).await.unwrap();
@@ -775,7 +903,7 @@ mod tests {
         assert_eq!(final_index.sessions.len(), 10);
         for i in 0..10 {
             assert!(
-                final_index.sessions.contains_key(&format!("session-{}", i)),
+                final_index.contains(&format!("session-{}", i)),
                 "Missing session-{}", i
             );
         }
@@ -841,16 +969,16 @@ mod tests {
                     .unwrap_or_default();
 
                 // Add a session
-                index.sessions.insert(
-                    session_id.clone(),
-                    SessionIndexEntry {
-                        source_path: None,
-                        created_at: chrono::Utc::now(),
-                        modified_at: chrono::Utc::now(),
-                        wal_position: 0,
-                        checkpoint_positions: vec![],
-                    },
-                );
+                index.upsert(SessionIndexEntry {
+                    id: session_id.clone(),
+                    source_path: None,
+                    created_at: chrono::Utc::now(),
+                    last_modified_at: chrono::Utc::now(),
+                    docx_file: None,
+                    wal_count: 0,
+                    cursor_position: 0,
+                    checkpoint_positions: vec![],
+                });
 
                 // Save - ensure this completes before releasing lock
                 storage
@@ -888,8 +1016,136 @@ mod tests {
             found_count,
             created_ids
                 .iter()
-                .filter(|id| !final_index.sessions.contains_key(*id))
+                .filter(|id| !final_index.contains(id))
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[tokio::test]
+    async fn test_load_dotnet_index_format() {
+        // Test loading the actual .NET index format
+        let index_json = r#"{
+  "version": 1,
+  "sessions": [
+    {
+      "id": "a5fea612f066",
+      "source_path": "/Users/laurentvaldes/Documents/lettre de motivation.docx",
+      "created_at": "2026-02-03T21:16:37.29544Z",
+      "last_modified_at": "2026-02-04T17:37:38.4257Z",
+      "docx_file": "a5fea612f066.docx",
+      "wal_count": 26,
+      "cursor_position": 26,
+      "checkpoint_positions": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    }
+  ]
+}"#;
+
+        let index: SessionIndex = serde_json::from_str(index_json).expect("Failed to parse index");
+
+        assert_eq!(index.version, 1);
+        assert_eq!(index.sessions.len(), 1);
+
+        let session = index.get("a5fea612f066").expect("Session not found");
+        assert_eq!(session.id, "a5fea612f066");
+        assert_eq!(session.source_path, Some("/Users/laurentvaldes/Documents/lettre de motivation.docx".to_string()));
+        assert_eq!(session.docx_file, Some("a5fea612f066.docx".to_string()));
+        assert_eq!(session.wal_count, 26);
+        assert_eq!(session.cursor_position, 26);
+        assert_eq!(session.checkpoint_positions.len(), 10);
+    }
+
+    #[test]
+    fn test_strip_dotnet_header_with_prefix() {
+        // Simulate .NET format: 8-byte length prefix + DOCX data
+        // The first 8 bytes are a little-endian u64 length
+        let mut data = vec![0x87, 0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]; // 8-byte header
+        data.extend_from_slice(&[0x50, 0x4B, 0x03, 0x04]); // PK signature
+        data.extend_from_slice(b"rest of docx content");
+
+        let result = LocalStorage::strip_dotnet_header(data);
+
+        // Should strip the 8-byte header
+        assert_eq!(result[0..4], [0x50, 0x4B, 0x03, 0x04]);
+        assert_eq!(result.len(), 4 + 20); // PK + "rest of docx content"
+    }
+
+    #[test]
+    fn test_strip_dotnet_header_without_prefix() {
+        // Raw DOCX file (no header) - starts directly with PK
+        let mut data = vec![0x50, 0x4B, 0x03, 0x04]; // PK signature
+        data.extend_from_slice(b"rest of docx content");
+
+        let result = LocalStorage::strip_dotnet_header(data.clone());
+
+        // Should return unchanged
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn test_strip_dotnet_header_empty() {
+        let data = vec![];
+        let result = LocalStorage::strip_dotnet_header(data);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_strip_dotnet_header_too_small() {
+        // Too small to have header + valid DOCX
+        let data = vec![0x01, 0x02, 0x03];
+        let result = LocalStorage::strip_dotnet_header(data.clone());
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn test_strip_dotnet_header_unknown_format() {
+        // Unknown format - doesn't start with PK and no PK at offset 8
+        let data = vec![0x00; 20];
+        let result = LocalStorage::strip_dotnet_header(data.clone());
+        assert_eq!(result, data);
+    }
+
+    #[tokio::test]
+    async fn test_load_session_with_dotnet_header() {
+        let (storage, _temp) = setup().await;
+        let tenant = "test-tenant";
+        let session = "test-session";
+
+        // Write a file with .NET header prefix
+        storage.ensure_sessions_dir(tenant).await.unwrap();
+        let path = storage.session_path(tenant, session);
+
+        let mut data_with_header = vec![0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]; // 8-byte header
+        data_with_header.extend_from_slice(&[0x50, 0x4B, 0x03, 0x04]); // PK signature
+        data_with_header.extend_from_slice(b"docx content");
+
+        fs::write(&path, &data_with_header).await.unwrap();
+
+        // Load should strip the header
+        let loaded = storage.load_session(tenant, session).await.unwrap().unwrap();
+        assert_eq!(&loaded[0..4], &[0x50, 0x4B, 0x03, 0x04]);
+        assert_eq!(loaded.len(), 4 + 12); // PK + "docx content"
+    }
+
+    #[tokio::test]
+    async fn test_load_checkpoint_with_dotnet_header() {
+        let (storage, _temp) = setup().await;
+        let tenant = "test-tenant";
+        let session = "test-session";
+
+        // Write a checkpoint with .NET header prefix
+        storage.ensure_sessions_dir(tenant).await.unwrap();
+        let path = storage.checkpoint_path(tenant, session, 10);
+
+        let mut data_with_header = vec![0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]; // 8-byte header
+        data_with_header.extend_from_slice(&[0x50, 0x4B, 0x03, 0x04]); // PK signature
+        data_with_header.extend_from_slice(b"checkpoint data");
+
+        fs::write(&path, &data_with_header).await.unwrap();
+
+        // Load should strip the header
+        let (loaded, pos) = storage.load_checkpoint(tenant, session, 10).await.unwrap().unwrap();
+        assert_eq!(pos, 10);
+        assert_eq!(&loaded[0..4], &[0x50, 0x4B, 0x03, 0x04]);
+        assert_eq!(loaded.len(), 4 + 15); // PK + "checkpoint data"
     }
 }

@@ -10,6 +10,7 @@ use clap::Parser;
 use tokio::signal;
 use tokio::sync::watch;
 use tonic::transport::Server;
+use tonic_reflection::server::Builder as ReflectionBuilder;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -21,6 +22,9 @@ use lock::FileLock;
 use service::proto::storage_service_server::StorageServiceServer;
 use service::StorageServiceImpl;
 use storage::LocalStorage;
+
+/// File descriptor set for gRPC reflection
+pub const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("storage_descriptor");
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -79,6 +83,11 @@ async fn main() -> anyhow::Result<()> {
         let _ = shutdown_rx.wait_for(|&v| v).await;
     };
 
+    // Create reflection service
+    let reflection_svc = ReflectionBuilder::configure()
+        .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)
+        .build_v1()?;
+
     // Start server based on transport
     match config.transport {
         Transport::Tcp => {
@@ -86,6 +95,7 @@ async fn main() -> anyhow::Result<()> {
             info!("Listening on tcp://{}", addr);
 
             Server::builder()
+                .add_service(reflection_svc)
                 .add_service(svc)
                 .serve_with_shutdown(addr, shutdown_future)
                 .await?;
@@ -110,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
             let uds_stream = tokio_stream::wrappers::UnixListenerStream::new(uds);
 
             Server::builder()
+                .add_service(reflection_svc)
                 .add_service(svc)
                 .serve_with_incoming_shutdown(uds_stream, shutdown_future)
                 .await?;

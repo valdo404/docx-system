@@ -1039,6 +1039,7 @@ dependencies = [
  "prost-types",
  "reqwest",
  "serde",
+ "serde_bytes",
  "serde_json",
  "tempfile",
  "thiserror",
@@ -1047,6 +1048,7 @@ dependencies = [
  "tokio-test",
  "tonic",
  "tonic-build",
+ "tonic-reflection",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -2732,6 +2734,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3199,6 +3211,19 @@ dependencies = [
  "prost-types",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tonic-reflection"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9687bd5bfeafebdded2356950f278bba8226f0b32109537c4253406e09aafe1"
+dependencies = [
+ "prost",
+ "prost-types",
+ "tokio",
+ "tokio-stream",
+ "tonic",
 ]
 
 [[package]]
