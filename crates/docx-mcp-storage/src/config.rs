@@ -65,6 +65,7 @@ impl Config {
     }
 
     /// Get the effective Unix socket path.
+    #[cfg(unix)]
     pub fn effective_unix_socket(&self) -> PathBuf {
         self.unix_socket.clone().unwrap_or_else(|| {
             std::env::var("XDG_RUNTIME_DIR")
