@@ -176,17 +176,20 @@ public sealed class GrpcLauncher : IDisposable
 
         var parentPid = Environment.ProcessId;
         var logFile = GetLogFilePath();
+        var localStorageDir = _options.GetEffectiveLocalStorageDir();
 
         var startInfo = new ProcessStartInfo
         {
             FileName = serverPath,
-            Arguments = $"--transport unix --unix-socket \"{socketPath}\" --parent-pid {parentPid}",
+            Arguments = $"--transport unix --unix-socket \"{socketPath}\" --local-storage-dir \"{localStorageDir}\" --parent-pid {parentPid}",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true
         };
         startInfo.Environment["RUST_LOG"] = "info";
+
+        _logger?.LogDebug("Storage directory: {Dir}", localStorageDir);
 
         await LaunchAndWaitAsync(startInfo, () => IsUnixServerRunningAsync(socketPath, cancellationToken), logFile, cancellationToken);
     }
@@ -205,17 +208,20 @@ public sealed class GrpcLauncher : IDisposable
 
         var parentPid = Environment.ProcessId;
         var logFile = GetLogFilePath();
+        var localStorageDir = _options.GetEffectiveLocalStorageDir();
 
         var startInfo = new ProcessStartInfo
         {
             FileName = serverPath,
-            Arguments = $"--transport tcp --port {port} --parent-pid {parentPid}",
+            Arguments = $"--transport tcp --port {port} --local-storage-dir \"{localStorageDir}\" --parent-pid {parentPid}",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true
         };
         startInfo.Environment["RUST_LOG"] = "info";
+
+        _logger?.LogDebug("Storage directory: {Dir}", localStorageDir);
 
         await LaunchAndWaitAsync(startInfo, () => IsTcpServerRunningAsync(port, cancellationToken), logFile, cancellationToken);
     }

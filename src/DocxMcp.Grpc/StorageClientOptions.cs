@@ -30,6 +30,25 @@ public sealed class StorageClientOptions
     public string? StorageServerPath { get; set; }
 
     /// <summary>
+    /// Base directory for local session storage.
+    /// Passed to the storage server via --local-storage-dir.
+    /// Default: LocalApplicationData/docx-mcp/sessions
+    /// </summary>
+    public string? LocalStorageDir { get; set; }
+
+    /// <summary>
+    /// Get effective local storage directory.
+    /// </summary>
+    public string GetEffectiveLocalStorageDir()
+    {
+        if (LocalStorageDir is not null)
+            return LocalStorageDir;
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(localAppData, "docx-mcp", "sessions");
+    }
+
+    /// <summary>
     /// Timeout for connecting to the gRPC server.
     /// </summary>
     public TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(10);
@@ -93,6 +112,12 @@ public sealed class StorageClientOptions
         var autoLaunch = Environment.GetEnvironmentVariable("STORAGE_AUTO_LAUNCH");
         if (autoLaunch is not null && autoLaunch.Equals("false", StringComparison.OrdinalIgnoreCase))
             options.AutoLaunch = false;
+
+        // Support both new and legacy environment variable names
+        var localStorageDir = Environment.GetEnvironmentVariable("LOCAL_STORAGE_DIR")
+            ?? Environment.GetEnvironmentVariable("DOCX_SESSIONS_DIR");
+        if (!string.IsNullOrEmpty(localStorageDir))
+            options.LocalStorageDir = localStorageDir;
 
         return options;
     }
