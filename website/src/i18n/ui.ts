@@ -58,14 +58,14 @@ export const ui = {
     'products.workflows.description': 'Automatisation de bout en bout pour les pipelines documentaires d\u2019entreprise. Connectez vos documents \u00e0 des agents IA qui g\u00e8rent l\u2019int\u00e9gralit\u00e9 du cycle d\u2019\u00e9dition\u00a0\u2014\u00a0du brouillon \u00e0 l\u2019approbation finale.',
 
     // Vision
-    'vision.title': 'L\u2019avenir de l\u2019\u00e9dition documentaire est agentique',
-    'vision.description': 'Nous construisons un monde o\u00f9 vous n\u2019\u00e9ditez plus jamais un document Word manuellement. Votre assistant IA comprend votre intention, conna\u00eet vos documents et g\u00e8re le formatage, les mises \u00e0 jour et les r\u00e9visions\u00a0\u2014\u00a0pendant que vous vous concentrez sur l\u2019essentiel.',
+    'vision.title': 'Faire mieux qu\'Anthropic. Faire mieux que Microsoft.',
+    'vision.description': 'Les géants de la tech ont créé des IA brillantes et des logiciels de bureautique puissants. Mais personne n\'a vraiment connecté les deux. Nous, si. Éditions massives sur des documents de 500 pages. Maîtrise absolue de chaque fonctionnalité Word. Précision chirurgicale à grande échelle.',
     'vision.multiplatform.title': 'Multi-plateforme',
-    'vision.multiplatform.description': 'Fonctionne partout o\u00f9 vivent vos documents\u00a0\u2014\u00a0Microsoft 365, SharePoint, fichiers locaux, stockage cloud.',
-    'vision.ainative.title': 'IA-natif',
-    'vision.ainative.description': 'Con\u00e7u pour Claude, ChatGPT et la prochaine g\u00e9n\u00e9ration d\u2019assistants IA.',
-    'vision.enterprise.title': 'Pr\u00eat pour l\u2019entreprise',
-    'vision.enterprise.description': 'S\u00e9curit\u00e9, conformit\u00e9 et piste d\u2019audit int\u00e9gr\u00e9es d\u00e8s le premier jour.',
+    'vision.multiplatform.description': 'Fonctionne partout où vivent vos documents — Microsoft 365, SharePoint, fichiers locaux, stockage cloud.',
+    'vision.ainative.title': 'Maîtrise totale de Word',
+    'vision.ainative.description': 'Styles, tableaux, en-têtes, pieds de page, sections, champs, commentaires, suivi des modifications — chaque fonctionnalité Word, accessible à l\'IA.',
+    'vision.enterprise.title': 'Éditions à grande échelle',
+    'vision.enterprise.description': 'Documents de 1000 pages, modifications par lots, mises à jour massives — là où les autres échouent, nous excellons.',
 
     // CTA
     'cta.title': 'Pr\u00eat \u00e0 automatiser vos workflows documentaires\u00a0?',
@@ -172,14 +172,14 @@ export const ui = {
     'products.workflows.description': 'End-to-end automation for enterprise document pipelines. Connect your documents to AI agents that handle the entire editing lifecycle \u2014 from draft to final approval.',
 
     // Vision
-    'vision.title': 'The future of document editing is agentic',
-    'vision.description': 'We\'re building toward a world where you never manually edit a Word document again. Your AI assistant understands your intent, knows your documents, and handles the formatting, updates, and revisions \u2014 while you focus on what matters.',
+    'vision.title': 'Outperforming Anthropic. Outperforming Microsoft.',
+    'vision.description': 'Tech giants built brilliant AIs and powerful office software. But nobody truly connected them. We did. Massive edits on 500-page documents. Absolute mastery of every Word feature. Surgical precision at scale.',
     'vision.multiplatform.title': 'Multi-platform',
-    'vision.multiplatform.description': 'Works everywhere your documents live \u2014 Microsoft 365, SharePoint, local files, cloud storage.',
-    'vision.ainative.title': 'AI-native',
-    'vision.ainative.description': 'Built for Claude, ChatGPT, and the next generation of AI assistants.',
-    'vision.enterprise.title': 'Enterprise-ready',
-    'vision.enterprise.description': 'Security, compliance, and audit trails built in from day one.',
+    'vision.multiplatform.description': 'Works everywhere your documents live — Microsoft 365, SharePoint, local files, cloud storage.',
+    'vision.ainative.title': 'Total Word mastery',
+    'vision.ainative.description': 'Styles, tables, headers, footers, sections, fields, comments, track changes — every Word feature, accessible to AI.',
+    'vision.enterprise.title': 'Edits at scale',
+    'vision.enterprise.description': '1000-page documents, batch modifications, massive updates — where others fail, we excel.',
 
     // CTA
     'cta.title': 'Ready to automate your document workflows?',
