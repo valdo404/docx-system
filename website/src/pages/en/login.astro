@@ -4,11 +4,6 @@ import Layout from '../../layouts/Layout.astro';
 import { useTranslations } from '../../i18n/utils';
 
 const t = useTranslations('en');
-
-// Redirect if already logged in
-if (Astro.locals.user) {
-  return Astro.redirect('/en/dashboard');
-}
 ---
 
 <Layout title={`${t('auth.title')} — Docx System`}>
