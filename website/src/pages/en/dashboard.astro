@@ -14,7 +14,7 @@ const quotaMB = (tenant.storageQuotaBytes / 1024 / 1024).toFixed(0);
 const usagePercent = Math.round((tenant.storageUsedBytes / tenant.storageQuotaBytes) * 100);
 ---
 
-<Layout title={`${t('nav.dashboard')} — docx-mcp`}>
+<Layout title={`${t('nav.dashboard')} — Docx System`}>
   <Nav lang="en" authenticated={true} userName={user.name} />
 
   <main class="dashboard">

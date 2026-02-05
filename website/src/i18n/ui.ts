@@ -21,7 +21,7 @@ export const ui = {
     'hero.badgeText': 'Serveur MCP pour Claude & Agents IA',
     'hero.title.line1': 'Arr\u00eatez d\u2019\u00e9diter vos documents Word.',
     'hero.title.line2': 'Laissez l\u2019IA le faire.',
-    'hero.description': 'Votre \u00e9quipe passe des heures \u00e0 formater des rapports, mettre \u00e0 jour des contrats et corriger des documents \u00e0 la main. docx-mcp connecte vos assistants IA directement \u00e0 Microsoft Word\u00a0\u2014\u00a0pour qu\u2019ils lisent, \u00e9ditent et mettent en forme vos documents \u00e0 votre place.',
+    'hero.description': 'Votre \u00e9quipe passe des heures \u00e0 formater des rapports, mettre \u00e0 jour des contrats et corriger des documents \u00e0 la main. Docx System connecte vos assistants IA directement \u00e0 Microsoft Word\u00a0\u2014\u00a0pour qu\u2019ils lisent, \u00e9ditent et mettent en forme vos documents \u00e0 votre place.',
     'hero.cta.start': 'Commencer gratuitement',
     'hero.cta.roadmap': 'Voir la feuille de route',
     'hero.proof.claude': 'Compatible Claude Desktop',
@@ -42,7 +42,7 @@ export const ui = {
     'problem.stat2.label': 'des travailleurs du savoir \u00e9ditent des docs chaque jour',
 
     // Products
-    'products.title': 'L\u2019\u00e9cosyst\u00e8me docx-mcp',
+    'products.title': 'L\u2019\u00e9cosyst\u00e8me Docx System',
     'products.subtitle': 'Une mission\u00a0: rendre l\u2019\u00e9dition de documents automatique. Plusieurs produits pour y arriver.',
     'products.available': 'Disponible maintenant',
     'products.coming': 'Bient\u00f4t disponible',
@@ -52,8 +52,7 @@ export const ui = {
     'products.addin.title': 'Word Add-in',
     'products.addin.description': '\u00c9dition assist\u00e9e par IA directement dans Microsoft Word. Disponible pour Windows, macOS et iPad.',
     'products.skill.title': 'Claude Skill',
-    'products.skill.description': 'Utilisez les capacit\u00e9s de docx-mcp directement dans Claude.ai. Aucune installation\u00a0\u2014\u00a0demandez simplement \u00e0 Claude d\u2019\u00e9diter vos documents.',
-    'products.skill.badge': 'Partenariat Anthropic',
+    'products.skill.description': 'Utilisez les capacit\u00e9s de Docx System directement dans Claude.ai. Aucune installation\u00a0\u2014\u00a0demandez simplement \u00e0 Claude d\u2019\u00e9diter vos documents.',
     'products.workflows.title': 'Workflows documentaires agentiques',
     'products.workflows.description': 'Automatisation de bout en bout pour les pipelines documentaires d\u2019entreprise. Connectez vos documents \u00e0 des agents IA qui g\u00e8rent l\u2019int\u00e9gralit\u00e9 du cycle d\u2019\u00e9dition\u00a0\u2014\u00a0du brouillon \u00e0 l\u2019approbation finale.',
 
@@ -118,7 +117,7 @@ export const ui = {
     'hero.badgeText': 'MCP Server for Claude & AI Agents',
     'hero.title.line1': 'Stop editing Word documents.',
     'hero.title.line2': 'Let AI do it.',
-    'hero.description': 'Your team spends hours formatting reports, updating contracts, and fixing documents manually. docx-mcp connects your AI assistants directly to Microsoft Word \u2014 so they can read, edit, and format documents for you.',
+    'hero.description': 'Your team spends hours formatting reports, updating contracts, and fixing documents manually. Docx System connects your AI assistants directly to Microsoft Word \u2014 so they can read, edit, and format documents for you.',
     'hero.cta.start': 'Get Started Free',
     'hero.cta.roadmap': 'See the Roadmap',
     'hero.proof.claude': 'Works with Claude Desktop',
@@ -139,7 +138,7 @@ export const ui = {
     'problem.stat2.label': 'of knowledge workers edit docs daily',
 
     // Products
-    'products.title': 'The docx-mcp Ecosystem',
+    'products.title': 'The Docx System Ecosystem',
     'products.subtitle': 'One mission: make document editing automatic. Multiple products to get there.',
     'products.available': 'Available now',
     'products.coming': 'Coming soon',
@@ -149,8 +148,7 @@ export const ui = {
     'products.addin.title': 'Word Add-in',
     'products.addin.description': 'AI-powered editing directly inside Microsoft Word. Available for Windows, macOS, and iPad.',
     'products.skill.title': 'Claude Skill',
-    'products.skill.description': 'Use docx-mcp capabilities directly in Claude.ai. No setup, no installation \u2014 just ask Claude to edit your documents.',
-    'products.skill.badge': 'Anthropic Partnership',
+    'products.skill.description': 'Use Docx System capabilities directly in Claude.ai. No setup, no installation \u2014 just ask Claude to edit your documents.',
     'products.workflows.title': 'Agentic Document Workflows',
     'products.workflows.description': 'End-to-end automation for enterprise document pipelines. Connect your documents to AI agents that handle the entire editing lifecycle \u2014 from draft to final approval.',
 
