@@ -33,7 +33,6 @@ RUN apt-get update && \
 WORKDIR /src
 
 # Copy .NET source
-COPY Directory.Build.props ./
 COPY DocxMcp.sln ./
 COPY proto/ ./proto/
 COPY src/ ./src/
@@ -76,7 +75,7 @@ USER app
 
 # Environment variables
 ENV DOCX_SESSIONS_DIR=/home/app/.docx-mcp/sessions
-ENV STORAGE_GRPC_URL=unix:///tmp/docx-mcp-storage.sock
+# Socket path is dynamically generated with PID for uniqueness
 ENV LOCAL_STORAGE_DIR=/app/data
 ENV RUST_LOG=info
 

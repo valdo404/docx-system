@@ -14,12 +14,24 @@ pub struct SessionInfo {
 }
 
 /// A single WAL entry representing an edit operation.
+///
+/// The `patch_json` field contains the raw JSON bytes of the .NET WalEntry.
+/// The Rust server doesn't parse this - it just stores and retrieves raw bytes.
+/// The `position` field is assigned by the server when appending.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalEntry {
+    /// Position in WAL (1-indexed, assigned by server)
     pub position: u64,
+    /// Operation type (for debugging/logging only)
+    #[serde(default)]
     pub operation: String,
+    /// Target path (for debugging/logging only)
+    #[serde(default)]
     pub path: String,
+    /// Raw JSON bytes of the .NET WalEntry - stored as-is on disk
+    #[serde(with = "serde_bytes")]
     pub patch_json: Vec<u8>,
+    /// Timestamp
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
@@ -34,16 +46,85 @@ pub struct CheckpointInfo {
 /// The session index containing metadata about all sessions for a tenant.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SessionIndex {
-    pub sessions: std::collections::HashMap<String, SessionIndexEntry>,
+    /// Schema version
+    #[serde(default = "default_version")]
+    pub version: u32,
+    /// Array of session entries
+    #[serde(default)]
+    pub sessions: Vec<SessionIndexEntry>,
 }
 
+fn default_version() -> u32 {
+    1
+}
+
+impl SessionIndex {
+    /// Get a session entry by ID.
+    #[allow(dead_code)]
+    pub fn get(&self, session_id: &str) -> Option<&SessionIndexEntry> {
+        self.sessions.iter().find(|s| s.id == session_id)
+    }
+
+    /// Get a mutable session entry by ID.
+    pub fn get_mut(&mut self, session_id: &str) -> Option<&mut SessionIndexEntry> {
+        self.sessions.iter_mut().find(|s| s.id == session_id)
+    }
+
+    /// Insert or update a session entry.
+    pub fn upsert(&mut self, entry: SessionIndexEntry) {
+        if let Some(existing) = self.get_mut(&entry.id) {
+            *existing = entry;
+        } else {
+            self.sessions.push(entry);
+        }
+    }
+
+    /// Remove a session entry by ID.
+    pub fn remove(&mut self, session_id: &str) -> Option<SessionIndexEntry> {
+        if let Some(pos) = self.sessions.iter().position(|s| s.id == session_id) {
+            Some(self.sessions.remove(pos))
+        } else {
+            None
+        }
+    }
+
+    /// Check if a session exists.
+    pub fn contains(&self, session_id: &str) -> bool {
+        self.sessions.iter().any(|s| s.id == session_id)
+    }
+}
+
+/// A single session entry in the index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionIndexEntry {
+    /// Session ID
+    pub id: String,
+    /// Original source file path
     pub source_path: Option<String>,
+    /// Auto-sync enabled for this session
+    #[serde(default = "default_auto_sync")]
+    pub auto_sync: bool,
+    /// When the session was created
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub modified_at: chrono::DateTime<chrono::Utc>,
-    pub wal_position: u64,
+    /// When the session was last modified
+    #[serde(alias = "modified_at")]
+    pub last_modified_at: chrono::DateTime<chrono::Utc>,
+    /// The DOCX filename (e.g., "abc123.docx")
+    #[serde(default)]
+    pub docx_file: Option<String>,
+    /// WAL entry count
+    #[serde(alias = "wal_position", default)]
+    pub wal_count: u64,
+    /// Current cursor position in WAL
+    #[serde(default)]
+    pub cursor_position: u64,
+    /// Checkpoint positions
+    #[serde(default)]
     pub checkpoint_positions: Vec<u64>,
+}
+
+fn default_auto_sync() -> bool {
+    true
 }
 
 /// Storage backend abstraction for tenant-aware document storage.
@@ -126,12 +207,14 @@ pub trait StorageBackend: Send + Sync {
         limit: Option<u64>,
     ) -> Result<(Vec<WalEntry>, bool), StorageError>;
 
-    /// Truncate WAL, keeping only entries at or after the given position.
+    /// Truncate WAL, keeping only the first N entries.
+    /// - keep_count = 0: delete all entries
+    /// - keep_count = N: keep entries with position <= N
     async fn truncate_wal(
         &self,
         tenant_id: &str,
         session_id: &str,
-        keep_from: u64,
+        keep_count: u64,
     ) -> Result<u64, StorageError>;
 
     // =========================================================================

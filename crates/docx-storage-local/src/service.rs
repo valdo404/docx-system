@@ -7,6 +7,7 @@ use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, instrument};
 
+use crate::error::StorageResultExt;
 use crate::lock::LockManager;
 use crate::storage::StorageBackend;
 
@@ -42,19 +43,12 @@ impl StorageServiceImpl {
         }
     }
 
-    /// Extract tenant_id from request, returning error if missing.
+    /// Extract tenant_id from request context.
+    /// Empty string is allowed for backward compatibility with legacy paths.
     fn get_tenant_id(context: Option<&TenantContext>) -> Result<&str, Status> {
         context
             .map(|c| c.tenant_id.as_str())
-            .filter(|id| !id.is_empty())
-            .ok_or_else(|| Status::invalid_argument("tenant_id is required"))
-    }
-
-    /// Split data into chunks for streaming.
-    fn chunk_data(&self, data: Vec<u8>) -> Vec<Vec<u8>> {
-        data.chunks(self.chunk_size)
-            .map(|c| c.to_vec())
-            .collect()
+            .ok_or_else(|| Status::invalid_argument("tenant context is required"))
     }
 }
 
@@ -82,7 +76,7 @@ impl StorageService for StorageServiceImpl {
             .storage
             .load_session(&tenant_id, &session_id)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         let (tx, rx) = mpsc::channel(4);
         let chunk_size = self.chunk_size;
@@ -153,8 +147,7 @@ impl StorageService for StorageServiceImpl {
         }
 
         let tenant_id = tenant_id
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| Status::invalid_argument("tenant_id is required in first chunk"))?;
+            .ok_or_else(|| Status::invalid_argument("tenant context is required in first chunk"))?;
         let session_id = session_id
             .filter(|s| !s.is_empty())
             .ok_or_else(|| Status::invalid_argument("session_id is required in first chunk"))?;
@@ -164,7 +157,7 @@ impl StorageService for StorageServiceImpl {
         self.storage
             .save_session(&tenant_id, &session_id, &data)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         Ok(Response::new(SaveSessionResponse { success: true }))
     }
@@ -181,7 +174,7 @@ impl StorageService for StorageServiceImpl {
             .storage
             .list_sessions(tenant_id)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         let sessions = sessions
             .into_iter()
@@ -209,7 +202,7 @@ impl StorageService for StorageServiceImpl {
             .storage
             .delete_session(tenant_id, &req.session_id)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         Ok(Response::new(DeleteSessionResponse {
             success: true,
@@ -229,13 +222,13 @@ impl StorageService for StorageServiceImpl {
             .storage
             .session_exists(tenant_id, &req.session_id)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         Ok(Response::new(SessionExistsResponse { exists }))
     }
 
     // =========================================================================
-    // Index Operations
+    // Index Operations (Atomic - with internal locking)
     // =========================================================================
 
     #[instrument(skip(self, request), level = "debug")]
@@ -250,7 +243,7 @@ impl StorageService for StorageServiceImpl {
             .storage
             .load_index(tenant_id)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         let (index_json, found) = match result {
             Some(index) => {
@@ -265,22 +258,207 @@ impl StorageService for StorageServiceImpl {
     }
 
     #[instrument(skip(self, request), level = "debug")]
-    async fn save_index(
+    async fn add_session_to_index(
         &self,
-        request: Request<SaveIndexRequest>,
-    ) -> Result<Response<SaveIndexResponse>, Status> {
+        request: Request<AddSessionToIndexRequest>,
+    ) -> Result<Response<AddSessionToIndexResponse>, Status> {
         let req = request.into_inner();
         let tenant_id = Self::get_tenant_id(req.context.as_ref())?;
+        let session_id = req.session_id;
+        let entry = req.entry.ok_or_else(|| Status::invalid_argument("entry is required"))?;
 
-        let index: crate::storage::SessionIndex = serde_json::from_slice(&req.index_json)
-            .map_err(|e| Status::invalid_argument(format!("Invalid index JSON: {}", e)))?;
+        // Generate a unique holder ID for this operation
+        let holder_id = uuid::Uuid::new_v4().to_string();
+        let ttl = Duration::from_secs(30);
 
-        self.storage
-            .save_index(tenant_id, &index)
-            .await
-            .map_err(Status::from)?;
+        // Acquire lock with retries
+        let mut acquired = false;
+        for i in 0..10 {
+            if i > 0 {
+                tokio::time::sleep(Duration::from_millis(50 * i as u64)).await;
+            }
+            let result = self.lock_manager.acquire(tenant_id, "index", &holder_id, ttl).await
+                .map_storage_err()?;
+            if result.acquired {
+                acquired = true;
+                break;
+            }
+        }
 
-        Ok(Response::new(SaveIndexResponse { success: true }))
+        if !acquired {
+            return Err(Status::unavailable("Could not acquire index lock"));
+        }
+
+        // Perform atomic operation
+        let result = async {
+            let mut index = self.storage.load_index(tenant_id).await
+                .map_storage_err()?
+                .unwrap_or_default();
+
+            let already_exists = index.contains(&session_id);
+            if !already_exists {
+                index.upsert(crate::storage::SessionIndexEntry {
+                    id: session_id.clone(),
+                    source_path: if entry.source_path.is_empty() { None } else { Some(entry.source_path) },
+                    auto_sync: true, // Default to true for new sessions with source path
+                    created_at: chrono::DateTime::from_timestamp(entry.created_at_unix, 0)
+                        .unwrap_or_else(chrono::Utc::now),
+                    last_modified_at: chrono::DateTime::from_timestamp(entry.modified_at_unix, 0)
+                        .unwrap_or_else(chrono::Utc::now),
+                    docx_file: Some(format!("{}.docx", session_id)),
+                    wal_count: entry.wal_position,
+                    cursor_position: entry.wal_position,
+                    checkpoint_positions: entry.checkpoint_positions,
+                });
+                self.storage.save_index(tenant_id, &index).await.map_storage_err()?;
+            }
+
+            Ok::<_, Status>(already_exists)
+        }.await;
+
+        // Release lock
+        let _ = self.lock_manager.release(tenant_id, "index", &holder_id).await;
+
+        let already_exists = result?;
+        Ok(Response::new(AddSessionToIndexResponse {
+            success: true,
+            already_exists,
+        }))
+    }
+
+    #[instrument(skip(self, request), level = "debug")]
+    async fn update_session_in_index(
+        &self,
+        request: Request<UpdateSessionInIndexRequest>,
+    ) -> Result<Response<UpdateSessionInIndexResponse>, Status> {
+        let req = request.into_inner();
+        let tenant_id = Self::get_tenant_id(req.context.as_ref())?;
+        let session_id = req.session_id;
+
+        // Generate a unique holder ID for this operation
+        let holder_id = uuid::Uuid::new_v4().to_string();
+        let ttl = Duration::from_secs(30);
+
+        // Acquire lock with retries
+        let mut acquired = false;
+        for i in 0..10 {
+            if i > 0 {
+                tokio::time::sleep(Duration::from_millis(50 * i as u64)).await;
+            }
+            let result = self.lock_manager.acquire(tenant_id, "index", &holder_id, ttl).await
+                .map_storage_err()?;
+            if result.acquired {
+                acquired = true;
+                break;
+            }
+        }
+
+        if !acquired {
+            return Err(Status::unavailable("Could not acquire index lock"));
+        }
+
+        // Perform atomic operation
+        let result = async {
+            let mut index = self.storage.load_index(tenant_id).await
+                .map_storage_err()?
+                .unwrap_or_default();
+
+            let not_found = !index.contains(&session_id);
+            if !not_found {
+                let entry = index.get_mut(&session_id).unwrap();
+
+                // Update optional fields
+                if let Some(modified_at) = req.modified_at_unix {
+                    entry.last_modified_at = chrono::DateTime::from_timestamp(modified_at, 0)
+                        .unwrap_or_else(chrono::Utc::now);
+                }
+                if let Some(wal_position) = req.wal_position {
+                    entry.wal_count = wal_position;
+                    entry.cursor_position = wal_position;
+                }
+
+                // Add checkpoint positions
+                for pos in &req.add_checkpoint_positions {
+                    if !entry.checkpoint_positions.contains(pos) {
+                        entry.checkpoint_positions.push(*pos);
+                    }
+                }
+
+                // Remove checkpoint positions
+                entry.checkpoint_positions.retain(|p| !req.remove_checkpoint_positions.contains(p));
+
+                // Sort checkpoint positions
+                entry.checkpoint_positions.sort();
+
+                self.storage.save_index(tenant_id, &index).await.map_storage_err()?;
+            }
+
+            Ok::<_, Status>(not_found)
+        }.await;
+
+        // Release lock
+        let _ = self.lock_manager.release(tenant_id, "index", &holder_id).await;
+
+        let not_found = result?;
+        Ok(Response::new(UpdateSessionInIndexResponse {
+            success: !not_found,
+            not_found,
+        }))
+    }
+
+    #[instrument(skip(self, request), level = "debug")]
+    async fn remove_session_from_index(
+        &self,
+        request: Request<RemoveSessionFromIndexRequest>,
+    ) -> Result<Response<RemoveSessionFromIndexResponse>, Status> {
+        let req = request.into_inner();
+        let tenant_id = Self::get_tenant_id(req.context.as_ref())?;
+        let session_id = req.session_id;
+
+        // Generate a unique holder ID for this operation
+        let holder_id = uuid::Uuid::new_v4().to_string();
+        let ttl = Duration::from_secs(30);
+
+        // Acquire lock with retries
+        let mut acquired = false;
+        for i in 0..10 {
+            if i > 0 {
+                tokio::time::sleep(Duration::from_millis(50 * i as u64)).await;
+            }
+            let result = self.lock_manager.acquire(tenant_id, "index", &holder_id, ttl).await
+                .map_storage_err()?;
+            if result.acquired {
+                acquired = true;
+                break;
+            }
+        }
+
+        if !acquired {
+            return Err(Status::unavailable("Could not acquire index lock"));
+        }
+
+        // Perform atomic operation
+        let result = async {
+            let mut index = self.storage.load_index(tenant_id).await
+                .map_storage_err()?
+                .unwrap_or_default();
+
+            let existed = index.remove(&session_id).is_some();
+            if existed {
+                self.storage.save_index(tenant_id, &index).await.map_storage_err()?;
+            }
+
+            Ok::<_, Status>(existed)
+        }.await;
+
+        // Release lock
+        let _ = self.lock_manager.release(tenant_id, "index", &holder_id).await;
+
+        let existed = result?;
+        Ok(Response::new(RemoveSessionFromIndexResponse {
+            success: true,
+            existed,
+        }))
     }
 
     // =========================================================================
@@ -312,7 +490,7 @@ impl StorageService for StorageServiceImpl {
             .storage
             .append_wal(tenant_id, &req.session_id, &entries)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         Ok(Response::new(AppendWalResponse {
             success: true,
@@ -334,7 +512,7 @@ impl StorageService for StorageServiceImpl {
             .storage
             .read_wal(tenant_id, &req.session_id, req.from_position, limit)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         let entries = entries
             .into_iter()
@@ -362,7 +540,7 @@ impl StorageService for StorageServiceImpl {
             .storage
             .truncate_wal(tenant_id, &req.session_id, req.keep_from_position)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         Ok(Response::new(TruncateWalResponse {
             success: true,
@@ -404,8 +582,7 @@ impl StorageService for StorageServiceImpl {
         }
 
         let tenant_id = tenant_id
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| Status::invalid_argument("tenant_id is required in first chunk"))?;
+            .ok_or_else(|| Status::invalid_argument("tenant context is required in first chunk"))?;
         let session_id = session_id
             .filter(|s| !s.is_empty())
             .ok_or_else(|| Status::invalid_argument("session_id is required in first chunk"))?;
@@ -418,7 +595,7 @@ impl StorageService for StorageServiceImpl {
         self.storage
             .save_checkpoint(&tenant_id, &session_id, position, &data)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         Ok(Response::new(SaveCheckpointResponse { success: true }))
     }
@@ -437,7 +614,7 @@ impl StorageService for StorageServiceImpl {
             .storage
             .load_checkpoint(&tenant_id, &session_id, position)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         let (tx, rx) = mpsc::channel(4);
         let chunk_size = self.chunk_size;
@@ -494,7 +671,7 @@ impl StorageService for StorageServiceImpl {
             .storage
             .list_checkpoints(tenant_id, &req.session_id)
             .await
-            .map_err(Status::from)?;
+            .map_storage_err()?;
 
         let checkpoints = checkpoints
             .into_iter()
@@ -506,76 +683,6 @@ impl StorageService for StorageServiceImpl {
             .collect();
 
         Ok(Response::new(ListCheckpointsResponse { checkpoints }))
-    }
-
-    // =========================================================================
-    // Lock Operations
-    // =========================================================================
-
-    #[instrument(skip(self, request), level = "debug")]
-    async fn acquire_lock(
-        &self,
-        request: Request<AcquireLockRequest>,
-    ) -> Result<Response<AcquireLockResponse>, Status> {
-        let req = request.into_inner();
-        let tenant_id = Self::get_tenant_id(req.context.as_ref())?;
-
-        let ttl = Duration::from_secs(req.ttl_seconds.max(1) as u64);
-
-        let result = self
-            .lock_manager
-            .acquire(tenant_id, &req.resource_id, &req.holder_id, ttl)
-            .await
-            .map_err(Status::from)?;
-
-        Ok(Response::new(AcquireLockResponse {
-            acquired: result.acquired,
-            current_holder: result.current_holder.unwrap_or_default(),
-            expires_at_unix: result.expires_at,
-        }))
-    }
-
-    #[instrument(skip(self, request), level = "debug")]
-    async fn release_lock(
-        &self,
-        request: Request<ReleaseLockRequest>,
-    ) -> Result<Response<ReleaseLockResponse>, Status> {
-        let req = request.into_inner();
-        let tenant_id = Self::get_tenant_id(req.context.as_ref())?;
-
-        let result = self
-            .lock_manager
-            .release(tenant_id, &req.resource_id, &req.holder_id)
-            .await
-            .map_err(Status::from)?;
-
-        Ok(Response::new(ReleaseLockResponse {
-            released: result.released,
-            reason: result.reason,
-        }))
-    }
-
-    #[instrument(skip(self, request), level = "debug")]
-    async fn renew_lock(
-        &self,
-        request: Request<RenewLockRequest>,
-    ) -> Result<Response<RenewLockResponse>, Status> {
-        let req = request.into_inner();
-        let tenant_id = Self::get_tenant_id(req.context.as_ref())?;
-
-        let ttl = Duration::from_secs(req.ttl_seconds.max(1) as u64);
-
-        let result = self
-            .lock_manager
-            .renew(tenant_id, &req.resource_id, &req.holder_id, ttl)
-            .await
-            .map_err(Status::from)?;
-
-        Ok(Response::new(RenewLockResponse {
-            renewed: result.renewed,
-            expires_at_unix: result.expires_at,
-            reason: result.reason,
-        }))
     }
 
     // =========================================================================

@@ -4,8 +4,32 @@ on:
   push:
     branches: [ main, master ]
     tags: [ 'v*' ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Dockerfile'
+      - 'docker-compose*.yml'
+      - 'installers/**'
+      - 'publish.sh'
+      - '.github/workflows/docker-build.yml'
+      - '.github/scripts/**'
   pull_request:
     branches: [ main, master ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Dockerfile'
+      - 'docker-compose*.yml'
+      - 'installers/**'
+      - 'publish.sh'
+      - '.github/workflows/docker-build.yml'
+      - '.github/scripts/**'
   workflow_dispatch:
     inputs:
       create_release:
@@ -20,13 +44,107 @@ env:
 
 jobs:
   # =============================================================================
+  # Build Rust Storage Server (all architectures first)
+  # =============================================================================
+  build-storage:
+    name: Build Storage Server (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            artifact-name: linux-x64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            artifact-name: linux-arm64
+          # macOS
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel  # Intel runner
+            artifact-name: macos-x64
+          - target: aarch64-apple-darwin
+            runner: macos-latest  # Apple Silicon runner
+            artifact-name: macos-arm64
+          # Windows
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            artifact-name: windows-x64
+          - target: aarch64-pc-windows-msvc
+            runner: windows-latest
+            artifact-name: windows-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Install protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Install protoc (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install protoc -y
+          echo "C:\ProgramData\chocolatey\lib\protoc\tools\bin" >> $env:GITHUB_PATH
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64 on x64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu' && matrix.runner == 'ubuntu-latest'
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build storage server
+        run: cargo build --release --target ${{ matrix.target }} -p docx-mcp-storage
+
+      - name: Prepare artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist/${{ matrix.artifact-name }}
+          cp target/${{ matrix.target }}/release/docx-mcp-storage dist/${{ matrix.artifact-name }}/
+          chmod +x dist/${{ matrix.artifact-name }}/docx-mcp-storage
+
+      - name: Prepare artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/${{ matrix.artifact-name }}
+          Copy-Item target/${{ matrix.target }}/release/docx-mcp-storage.exe dist/${{ matrix.artifact-name }}/
+
+      - name: Upload storage server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: storage-${{ matrix.artifact-name }}
+          path: dist/${{ matrix.artifact-name }}
+
+  # =============================================================================
   # Tests
   # =============================================================================
   test:
     name: Run Tests
+    needs: build-storage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download storage server
+        uses: actions/download-artifact@v4
+        with:
+          name: storage-linux-x64
+          path: dist/linux-x64
+
+      - name: Make storage server executable
+        run: chmod +x dist/linux-x64/docx-mcp-storage
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -169,7 +287,7 @@ jobs:
   # =============================================================================
   installer-windows:
     name: Windows Installer ${{ matrix.arch }}
-    needs: test
+    needs: [test, build-storage]
     runs-on: windows-latest
     strategy:
       matrix:
@@ -177,6 +295,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download storage server
+        uses: actions/download-artifact@v4
+        with:
+          name: storage-windows-${{ matrix.arch }}
+          path: dist/windows-${{ matrix.arch }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -269,11 +393,28 @@ jobs:
   # =============================================================================
   installer-macos:
     name: macOS Universal Installer
-    needs: test
+    needs: [test, build-storage]
     runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download storage server (x64)
+        uses: actions/download-artifact@v4
+        with:
+          name: storage-macos-x64
+          path: dist/macos-x64
+
+      - name: Download storage server (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: storage-macos-arm64
+          path: dist/macos-arm64
+
+      - name: Make storage servers executable
+        run: |
+          chmod +x dist/macos-x64/docx-mcp-storage
+          chmod +x dist/macos-arm64/docx-mcp-storage
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -337,14 +478,23 @@ jobs:
             dist/macos-arm64/docx-cli \
             -output dist/macos-universal/docx-cli
 
+          # Create universal binary for docx-mcp-storage
+          lipo -create \
+            dist/macos-x64/docx-mcp-storage \
+            dist/macos-arm64/docx-mcp-storage \
+            -output dist/macos-universal/docx-mcp-storage
+
           chmod +x dist/macos-universal/docx-mcp
           chmod +x dist/macos-universal/docx-cli
+          chmod +x dist/macos-universal/docx-mcp-storage
 
           # Verify universal binaries
           echo "docx-mcp architectures:"
           lipo -info dist/macos-universal/docx-mcp
           echo "docx-cli architectures:"
           lipo -info dist/macos-universal/docx-cli
+          echo "docx-mcp-storage architectures:"
+          lipo -info dist/macos-universal/docx-mcp-storage
 
       - name: Extract version
         id: version

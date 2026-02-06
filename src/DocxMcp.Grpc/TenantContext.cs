@@ -7,13 +7,16 @@ public static class TenantContextHelper
 {
     /// <summary>
     /// Default tenant ID for local CLI usage.
+    /// Empty string for backward compatibility with legacy session paths
+    /// (stores directly in sessions/ without tenant prefix).
     /// </summary>
-    public const string LocalTenant = "local";
+    public const string LocalTenant = "";
 
     /// <summary>
     /// Default tenant ID for MCP stdio usage.
+    /// Empty string for backward compatibility with legacy session paths.
     /// </summary>
-    public const string DefaultTenant = "default";
+    public const string DefaultTenant = "";
 
     /// <summary>
     /// Current tenant context stored as AsyncLocal for per-request isolation.
