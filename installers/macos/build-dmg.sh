@@ -108,7 +108,7 @@ Installation:
 After installation, binaries will be available at:
   /usr/local/bin/docx-mcp          (MCP server)
   /usr/local/bin/docx-cli          (CLI tool)
-  /usr/local/bin/docx-mcp-storage  (gRPC storage server)
+  /usr/local/bin/docx-storage-local  (gRPC storage server)
 
 Quick Start:
   docx-mcp --help

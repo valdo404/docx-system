@@ -6,7 +6,7 @@
 #define MyAppURL "https://github.com/valdo404/docx-mcp"
 #define MyAppExeName "docx-mcp.exe"
 #define MyCliExeName "docx-cli.exe"
-#define MyStorageExeName "docx-mcp-storage.exe"
+#define MyStorageExeName "docx-storage-local.exe"
 
 ; Version will be passed via command line: /DMyAppVersion=1.0.0
 #ifndef MyAppVersion

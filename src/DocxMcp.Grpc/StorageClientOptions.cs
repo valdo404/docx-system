@@ -12,7 +12,7 @@ public sealed class StorageClientOptions
     public string? ServerUrl { get; set; }
 
     /// <summary>
-    /// Path to Unix socket (e.g., "/tmp/docx-mcp-storage.sock").
+    /// Path to Unix socket (e.g., "/tmp/docx-storage-local.sock").
     /// Used when ServerUrl is null and on Unix-like systems.
     /// </summary>
     public string? UnixSocketPath { get; set; }
@@ -77,11 +77,11 @@ public sealed class StorageClientOptions
         if (OperatingSystem.IsWindows())
         {
             // Windows named pipe - unique per process
-            return $@"\\.\pipe\docx-mcp-storage-{pid}";
+            return $@"\\.\pipe\docx-storage-local-{pid}";
         }
 
         // Unix socket - unique per process
-        var socketName = $"docx-mcp-storage-{pid}.sock";
+        var socketName = $"docx-storage-local-{pid}.sock";
         var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
         return runtimeDir is not null
             ? Path.Combine(runtimeDir, socketName)

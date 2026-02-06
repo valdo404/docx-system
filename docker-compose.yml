@@ -8,7 +8,7 @@ services:
   storage:
     build:
       context: .
-      dockerfile: crates/docx-mcp-storage/Dockerfile
+      dockerfile: crates/docx-storage-local/Dockerfile
     environment:
       RUST_LOG: info
       GRPC_HOST: "0.0.0.0"

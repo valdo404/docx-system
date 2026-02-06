@@ -55,7 +55,7 @@ impl Config {
             std::env::var("XDG_RUNTIME_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("/tmp"))
-                .join("docx-mcp-storage.sock")
+                .join("docx-storage-local.sock")
         })
     }
 }

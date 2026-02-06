@@ -105,21 +105,21 @@ jobs:
         run: sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build storage server
-        run: cargo build --release --target ${{ matrix.target }} -p docx-mcp-storage
+        run: cargo build --release --target ${{ matrix.target }} -p docx-storage-local
 
       - name: Prepare artifact (Unix)
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist/${{ matrix.artifact-name }}
-          cp target/${{ matrix.target }}/release/docx-mcp-storage dist/${{ matrix.artifact-name }}/
-          chmod +x dist/${{ matrix.artifact-name }}/docx-mcp-storage
+          cp target/${{ matrix.target }}/release/docx-storage-local dist/${{ matrix.artifact-name }}/
+          chmod +x dist/${{ matrix.artifact-name }}/docx-storage-local
 
       - name: Prepare artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/${{ matrix.artifact-name }}
-          Copy-Item target/${{ matrix.target }}/release/docx-mcp-storage.exe dist/${{ matrix.artifact-name }}/
+          Copy-Item target/${{ matrix.target }}/release/docx-storage-local.exe dist/${{ matrix.artifact-name }}/
 
       - name: Upload storage server artifact
         uses: actions/upload-artifact@v4
@@ -144,7 +144,7 @@ jobs:
           path: dist/linux-x64
 
       - name: Make storage server executable
-        run: chmod +x dist/linux-x64/docx-mcp-storage
+        run: chmod +x dist/linux-x64/docx-storage-local
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -413,8 +413,8 @@ jobs:
 
       - name: Make storage servers executable
         run: |
-          chmod +x dist/macos-x64/docx-mcp-storage
-          chmod +x dist/macos-arm64/docx-mcp-storage
+          chmod +x dist/macos-x64/docx-storage-local
+          chmod +x dist/macos-arm64/docx-storage-local
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -478,23 +478,23 @@ jobs:
             dist/macos-arm64/docx-cli \
             -output dist/macos-universal/docx-cli
 
-          # Create universal binary for docx-mcp-storage
+          # Create universal binary for docx-storage-local
           lipo -create \
-            dist/macos-x64/docx-mcp-storage \
-            dist/macos-arm64/docx-mcp-storage \
-            -output dist/macos-universal/docx-mcp-storage
+            dist/macos-x64/docx-storage-local \
+            dist/macos-arm64/docx-storage-local \
+            -output dist/macos-universal/docx-storage-local
 
           chmod +x dist/macos-universal/docx-mcp
           chmod +x dist/macos-universal/docx-cli
-          chmod +x dist/macos-universal/docx-mcp-storage
+          chmod +x dist/macos-universal/docx-storage-local
 
           # Verify universal binaries
           echo "docx-mcp architectures:"
           lipo -info dist/macos-universal/docx-mcp
           echo "docx-cli architectures:"
           lipo -info dist/macos-universal/docx-cli
-          echo "docx-mcp-storage architectures:"
-          lipo -info dist/macos-universal/docx-mcp-storage
+          echo "docx-storage-local architectures:"
+          lipo -info dist/macos-universal/docx-storage-local
 
       - name: Extract version
         id: version

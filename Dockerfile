@@ -20,7 +20,7 @@ COPY proto/ ./proto/
 COPY crates/ ./crates/
 
 # Build the storage server
-RUN cargo build --release --package docx-mcp-storage
+RUN cargo build --release --package docx-storage-local
 
 # Stage 2: Build .NET MCP server and CLI
 FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS dotnet-builder
@@ -58,7 +58,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Copy binaries from builders
-COPY --from=rust-builder /rust/target/release/docx-mcp-storage ./
+COPY --from=rust-builder /rust/target/release/docx-storage-local ./
 COPY --from=dotnet-builder /app/docx-mcp ./
 COPY --from=dotnet-builder /app/cli/docx-cli ./
 
@@ -84,6 +84,6 @@ ENTRYPOINT ["./docx-mcp"]
 
 # =============================================================================
 # Alternative entrypoints:
-# - Storage server: docker run --entrypoint ./docx-mcp-storage ...
+# - Storage server: docker run --entrypoint ./docx-storage-local ...
 # - CLI: docker run --entrypoint ./docx-cli ...
 # =============================================================================

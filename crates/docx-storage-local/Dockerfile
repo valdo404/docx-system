@@ -1,5 +1,5 @@
 # =============================================================================
-# docx-mcp-storage Dockerfile
+# docx-storage-local Dockerfile
 # Multi-stage build for the gRPC storage server
 # =============================================================================
 
@@ -20,7 +20,7 @@ COPY proto/ ./proto/
 COPY crates/ ./crates/
 
 # Build the storage server
-RUN cargo build --release --package docx-mcp-storage
+RUN cargo build --release --package docx-storage-local
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim AS runtime
@@ -37,7 +37,7 @@ USER docx
 WORKDIR /app
 
 # Copy the binary from builder
-COPY --from=builder /build/target/release/docx-mcp-storage /app/docx-mcp-storage
+COPY --from=builder /build/target/release/docx-storage-local /app/docx-storage-local
 
 # Create data directory
 RUN mkdir -p /app/data
@@ -57,5 +57,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD ["timeout", "5", "grpc_health_probe", "-addr=localhost:50051"] || exit 1
 
 # Run the server
-ENTRYPOINT ["/app/docx-mcp-storage"]
+ENTRYPOINT ["/app/docx-storage-local"]
 CMD ["--transport", "tcp"]
