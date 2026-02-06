@@ -27,6 +27,9 @@ hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# Time
+chrono.workspace = true
+
 # Logging
 tracing.workspace = true
 tracing-subscriber.workspace = true

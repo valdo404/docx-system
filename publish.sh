@@ -11,7 +11,7 @@ set -euo pipefail
 
 SERVER_PROJECT="src/DocxMcp/DocxMcp.csproj"
 CLI_PROJECT="src/DocxMcp.Cli/DocxMcp.Cli.csproj"
-STORAGE_CRATE="crates/docx-mcp-storage"
+STORAGE_CRATE="crates/docx-storage-local"
 OUTPUT_DIR="dist"
 CONFIG="Release"
 
@@ -81,22 +81,22 @@ publish_rust_storage() {
         *) current_target="" ;;
     esac
 
-    local binary_name="docx-mcp-storage"
-    [[ "$name" == windows-* ]] && binary_name="docx-mcp-storage.exe"
+    local binary_name="docx-storage-local"
+    [[ "$name" == windows-* ]] && binary_name="docx-storage-local.exe"
 
     if [[ "$rust_target" == "$current_target" ]]; then
         # Native build
         echo "    Building Rust storage server (native)..."
-        cargo build --release --package docx-mcp-storage
+        cargo build --release --package docx-storage-local
         cp "target/release/$binary_name" "$out/" 2>/dev/null || \
-            cp "target/release/docx-mcp-storage" "$out/$binary_name"
+            cp "target/release/docx-storage-local" "$out/$binary_name"
     else
         # Cross-compile (requires target installed)
         if rustup target list --installed | grep -q "$rust_target"; then
             echo "    Building Rust storage server (cross: $rust_target)..."
-            cargo build --release --package docx-mcp-storage --target "$rust_target"
+            cargo build --release --package docx-storage-local --target "$rust_target"
             cp "target/$rust_target/release/$binary_name" "$out/" 2>/dev/null || \
-                cp "target/$rust_target/release/docx-mcp-storage" "$out/$binary_name"
+                cp "target/$rust_target/release/docx-storage-local" "$out/$binary_name"
         else
             echo "    SKIP: Rust target $rust_target not installed (run: rustup target add $rust_target)"
             return 0
@@ -122,7 +122,7 @@ publish_target() {
         export LIBRARY_PATH="/opt/homebrew/lib:${LIBRARY_PATH:-}"
     fi
 
-    echo "==> Publishing docx-mcp-storage ($name)..."
+    echo "==> Publishing docx-storage-local ($name)..."
     publish_rust_storage "$name" "$out"
 
     echo "==> Publishing docx-mcp ($name / $rid)..."
@@ -137,7 +137,7 @@ publish_rust_only() {
     local out="$OUTPUT_DIR/$rid_name"
     mkdir -p "$out"
 
-    echo "==> Publishing docx-mcp-storage ($rid_name)..."
+    echo "==> Publishing docx-storage-local ($rid_name)..."
     publish_rust_storage "$rid_name" "$out"
 }
 

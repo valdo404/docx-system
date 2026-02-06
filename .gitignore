@@ -49,6 +49,10 @@ target/
 Cargo.lock
 !crates/*/Cargo.lock
 
+# Pulumi / Python
+infra/venv/
+__pycache__/
+
 # Claude Code
 .claude/plans/
 .claude/settings.local.json

@@ -1,6 +1,6 @@
 # =============================================================================
-# docx-mcp-sse-proxy Dockerfile
-# Multi-stage build for the SSE/HTTP proxy with PAT authentication
+# docx-storage-cloudflare Dockerfile
+# Multi-stage build for the gRPC storage server (Cloudflare R2 + KV)
 # =============================================================================
 
 # Stage 1: Build
@@ -20,13 +20,13 @@ COPY Cargo.toml Cargo.lock ./
 COPY proto/ ./proto/
 COPY crates/ ./crates/
 
-# Build the proxy server
-RUN cargo build --release --package docx-mcp-sse-proxy
+# Build the storage server
+RUN cargo build --release --package docx-storage-cloudflare
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim AS runtime
 
-# Install runtime dependencies
+# Install runtime dependencies (minimal)
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -38,29 +38,31 @@ USER docx
 WORKDIR /app
 
 # Copy the binary from builder
-COPY --from=builder /build/target/release/docx-mcp-sse-proxy /app/docx-mcp-sse-proxy
-
-# Copy the MCP binary (built separately or mounted)
-# Note: In production, docx-mcp binary should be copied here
-# COPY --from=mcp-builder /app/docx-mcp /app/docx-mcp
+COPY --from=builder /build/target/release/docx-storage-cloudflare /app/docx-storage-cloudflare
 
 # Environment defaults
 ENV RUST_LOG=info
-ENV PROXY_HOST=0.0.0.0
-ENV PROXY_PORT=8080
+ENV GRPC_HOST=0.0.0.0
+ENV GRPC_PORT=50051
 
 # Required environment variables (must be set at runtime):
 # CLOUDFLARE_ACCOUNT_ID
 # CLOUDFLARE_API_TOKEN
-# D1_DATABASE_ID
-# STORAGE_GRPC_URL (e.g., http://storage:50051)
+# R2_BUCKET_NAME
+# KV_NAMESPACE_ID
+# R2_ACCESS_KEY_ID
+# R2_SECRET_ACCESS_KEY
 
-# Expose HTTP port
-EXPOSE 8080
+# Optional:
+# WATCH_POLL_INTERVAL (default: 30 seconds)
+
+# Expose gRPC port
+EXPOSE 50051
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD ["curl", "-f", "http://localhost:8080/health"] || exit 1
+    CMD ["timeout", "5", "grpc_health_probe", "-addr=localhost:50051"] || exit 1
 
-# Run the proxy
-ENTRYPOINT ["/app/docx-mcp-sse-proxy"]
+# Run the server
+ENTRYPOINT ["/app/docx-storage-cloudflare"]
+CMD ["--transport", "tcp"]
