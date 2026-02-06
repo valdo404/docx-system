@@ -3,42 +3,15 @@ using DocxMcp;
 using DocxMcp.Cli;
 using DocxMcp.Diff;
 using DocxMcp.ExternalChanges;
-using DocxMcp.Grpc;
+using DocxMcp.Persistence;
 using DocxMcp.Tools;
 using Microsoft.Extensions.Logging.Abstractions;
 
 // --- Bootstrap ---
+var sessionsDir = Environment.GetEnvironmentVariable("DOCX_SESSIONS_DIR");
 
-// Parse global --tenant flag first
-var tenantId = TenantContextHelper.LocalTenant;
-var filteredArgs = new List<string>();
-for (int i = 0; i < args.Length; i++)
-{
-    if (args[i] == "--tenant" && i + 1 < args.Length)
-    {
-        tenantId = args[i + 1];
-        i++; // Skip the value
-    }
-    else if (!args[i].StartsWith("--tenant="))
-    {
-        filteredArgs.Add(args[i]);
-    }
-    else
-    {
-        tenantId = args[i].Substring("--tenant=".Length);
-    }
-}
-args = filteredArgs.ToArray();
-
-// Set tenant context for all operations
-TenantContextHelper.CurrentTenantId = tenantId;
-
-// Create gRPC storage client with auto-launch support
-var storageOptions = new StorageClientOptions();
-var launcher = new GrpcLauncher(storageOptions, NullLogger<GrpcLauncher>.Instance);
-var storage = StorageClient.CreateAsync(storageOptions, launcher, NullLogger<StorageClient>.Instance).GetAwaiter().GetResult();
-
-var sessions = new SessionManager(storage, NullLogger<SessionManager>.Instance);
+var store = new SessionStore(NullLogger<SessionStore>.Instance, sessionsDir);
+var sessions = new SessionManager(store, NullLogger<SessionManager>.Instance);
 var externalTracker = new ExternalChangeTracker(sessions, NullLogger<ExternalChangeTracker>.Instance);
 sessions.SetExternalChangeTracker(externalTracker);
 sessions.RestoreSessions();
@@ -797,17 +770,15 @@ static void PrintUsage()
       watch <path> [--auto-sync] [--debounce ms] [--pattern *.docx] [--recursive]
                                  Watch file or folder for changes (daemon mode)
 
-    Global options:
-      --tenant <id>  Specify tenant ID (default: 'local')
-      --dry-run      Simulate operation without applying changes
+    Options:
+      --dry-run    Simulate operation without applying changes
 
     Environment:
-      STORAGE_GRPC_URL             gRPC storage server URL (auto-launches local if not set)
-      DOCX_SESSIONS_DIR            Override sessions directory (legacy, for local storage)
+      DOCX_SESSIONS_DIR            Override sessions directory (shared with MCP server)
       DOCX_WAL_COMPACT_THRESHOLD   Auto-compact WAL after N entries (default: 50)
       DOCX_CHECKPOINT_INTERVAL     Create checkpoint every N entries (default: 10)
       DOCX_AUTO_SAVE               Auto-save to source file after each edit (default: true)
-      DEBUG                        Enable debug logging for sync operations
+      DEBUG                            Enable debug logging for sync operations
 
     Sessions persist between invocations and are shared with the MCP server.
     WAL history is preserved automatically; use 'close' to permanently delete a session.
