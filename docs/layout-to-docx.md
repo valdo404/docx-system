@@ -42,7 +42,8 @@ y grows downward. Colors are `"#RRGGBB"` (`#RGB` and `#RRGGBBAA` are accepted; a
               "runs": [
                 { "text": "Hello ", "font": "General Sans Medium", "size": 10.0,
                   "bold": false, "italic": false, "color": "#515151",
-                  "underline": false, "link": null } ] } ] },       // link: URL or null
+                  "underline": false, "link": null,                  // link: URL or null
+                  "spacing": 2.35 } ] } ] },                         // optional, see below
         { "type": "rect", "x": 0, "y": 0, "width": 100, "height": 20,
           "fill": "#1C1C1C", "stroke": null },                     // stroke: {"color","width"} or null
         { "type": "line", "x1": 70, "y1": 800, "x2": 525, "y2": 800,
@@ -73,7 +74,11 @@ versions other than 1 are rejected with a message naming the offending path
     alignment per line (`justify` → `w:jc="distribute"`, which stretches a single line to the
     full width), runs with `w:rFonts` (ascii/hAnsi/eastAsia/cs), `w:sz` (half-points), `w:b`,
     `w:i`, `w:color`, `w:u="single"`, kerning at every size and standard ligatures (as Typst);
-    links become `w:hyperlink` with an external relationship (one per distinct URL); spaces are
+    an optional run `spacing` (pt, may be negative: extra advance after each character) becomes
+    `w:spacing w:val="round(spacing×20)"` in the run, clamped to Word's ±1584 pt — this lets the
+    exporter reproduce Typst's justification exactly (one run per stretched space, line
+    `align: "left"`) instead of relying on `distribute`, which Word spreads differently (partly
+    between letters); links become `w:hyperlink` with an external relationship (one per distinct URL); spaces are
     preserved.
   - `rect` → `wps:wsp`, `prstGeom rect`, `solidFill`/`noFill`, `a:ln` (width/color or `noFill`).
   - `line` → `wps:wsp`, `prstGeom line`, box = bounding box of the two points, `flipH` when the
@@ -100,7 +105,10 @@ is indented back so the text stays at the layout position:
 | left | both sides | left = slack, right = 0 → text starts at `x`, may overflow right by `slack` |
 | right | both sides | left = 0, right = slack → text ends at `x + width` |
 | center | both sides | 0 / 0 → centered on the block center |
-| justify | both sides | slack / slack → stretched to exactly `width` |
+| justify | both sides | slack / slack → stretched to exactly `width` (`distribute`) |
+
+Prefer exporting justified lines as `align: "left"` with per-run `spacing` on the stretched
+spaces: Word's `distribute` does not spread the space the way Typst does.
 
 This keeps a line that Word measures marginally wider than Typst from wrapping.
 

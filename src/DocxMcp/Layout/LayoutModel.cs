@@ -15,9 +15,14 @@ public abstract record LayoutItem;
 
 public sealed record LayoutStroke(string Color, double Width);
 
+/// <summary>
+/// A run of text. <see cref="Spacing"/> is an optional extra advance (pt, may be negative) added
+/// after each character of the run (w:spacing in w:rPr), used to reproduce the layout engine's
+/// justification exactly (e.g. one run per stretched space).
+/// </summary>
 public sealed record LayoutRun(
     string Text, string? Font, double Size, bool Bold, bool Italic,
-    string? Color, bool Underline, string? Link);
+    string? Color, bool Underline, string? Link, double? Spacing = null);
 
 public enum LayoutAlign { Left, Right, Center, Justify }
 
@@ -131,7 +136,8 @@ public static class LayoutParser
                         Bool(r, "italic"),
                         Color(Str(r, "color"), lctx),
                         Bool(r, "underline"),
-                        Str(r, "link")));
+                        Str(r, "link"),
+                        OptNum(r, "spacing")));
                 }
             }
             var align = (Str(l, "align") ?? "left").ToLowerInvariant() switch

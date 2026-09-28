@@ -570,6 +570,8 @@ public static class LayoutDocxWriter
         if (run.Bold) { x.WriteElementString("w", "b", W, null); x.WriteElementString("w", "bCs", W, null); }
         if (run.Italic) { x.WriteElementString("w", "i", W, null); x.WriteElementString("w", "iCs", W, null); }
         if (run.Color is not null) WriteVal(x, "color", run.Color);
+        if (run.Spacing is { } spacing && spacing != 0)
+            WriteVal(x, "spacing", CharacterSpacingTwips(spacing).ToString(CultureInfo.InvariantCulture));
         WriteVal(x, "kern", "2"); // pair kerning at every size, like Typst
         var sz = HalfPoints(run.Size).ToString(CultureInfo.InvariantCulture);
         WriteVal(x, "sz", sz);
@@ -618,6 +620,13 @@ public static class LayoutDocxWriter
         x.WriteAttributeString("w", "val", W, val);
         x.WriteEndElement();
     }
+
+    /// <summary>Word's character spacing limit: ±1584 pt (in twentieths of a point).</summary>
+    public const long MaxCharacterSpacingTwips = 31680;
+
+    /// <summary>Run character spacing (w:spacing in w:rPr) in twips, clamped to Word's range.</summary>
+    public static long CharacterSpacingTwips(double pt) =>
+        Math.Clamp(Twips(pt), -MaxCharacterSpacingTwips, MaxCharacterSpacingTwips);
 
     public static long Emu(double pt) => (long)Math.Round(pt * EmuPerPoint, MidpointRounding.AwayFromZero);
     public static long Twips(double pt) => (long)Math.Round(pt * 20, MidpointRounding.AwayFromZero);

@@ -260,6 +260,41 @@ public class LayoutDocxWriterTests
     }
 
     [Fact]
+    public void Write_RunSpacing_EmitsCharacterSpacingInTwips()
+    {
+        var json = """
+            {"version":1,"pages":[{"width":200,"height":100,"items":[
+              {"type":"text","x":10,"y":10,"width":180,"height":12,"lines":[
+                {"baseline":9.6,"height":12,"align":"left","runs":[
+                  {"text":"Hello","font":"Helvetica","size":10},
+                  {"text":" ","font":"Helvetica","size":10,"spacing":2.35},
+                  {"text":"tight","font":"Helvetica","size":10,"spacing":-0.4},
+                  {"text":"x","font":"Helvetica","size":10,"spacing":5000},
+                  {"text":"y","font":"Helvetica","size":10,"spacing":0}
+                ]}]}]}]}
+            """;
+        var layout = LayoutParser.Parse(json);
+        Assert.Equal(2.35, layout.Pages[0].Items.OfType<LayoutText>().Single().Lines[0].Runs[1].Spacing);
+
+        using var ms = new MemoryStream();
+        LayoutDocxWriter.Write(layout, ms);
+        using var doc = Open(ms.ToArray());
+        var runs = doc.MainDocumentPart!.Document.Body!.Descendants<TextBoxContent>()
+            .SelectMany(t => t.Descendants<Run>()).ToList();
+        Assert.Equal(5, runs.Count);
+        Assert.Null(runs[0].RunProperties!.Spacing);
+        Assert.Equal(47, runs[1].RunProperties!.Spacing!.Val!.Value);     // 2.35pt = 47 twips
+        Assert.Equal(-8, runs[2].RunProperties!.Spacing!.Val!.Value);     // negative allowed
+        Assert.Equal(31680, runs[3].RunProperties!.Spacing!.Val!.Value);  // clamped to 1584pt
+        Assert.Null(runs[4].RunProperties!.Spacing);                      // 0 → omitted
+        Assert.Equal(JustificationValues.Left,
+            runs[0].Ancestors<Paragraph>().First().ParagraphProperties!.Justification!.Val!.Value);
+
+        var errors = new OpenXmlValidator(FileFormatVersions.Microsoft365).Validate(doc).ToList();
+        Assert.True(errors.Count == 0, string.Join("\n", errors.Select(e => $"{e.Path?.XPath}: {e.Description}")));
+    }
+
+    [Fact]
     public void Write_IsDeterministic()
     {
         var a = WriteSample();
