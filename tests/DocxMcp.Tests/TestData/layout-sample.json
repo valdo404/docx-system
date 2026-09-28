@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "pages": [
+    {
+      "width": 595.28,
+      "height": 841.89,
+      "items": [
+        { "type": "rect", "x": 0, "y": 0, "width": 595.28, "height": 90,
+          "fill": "#1C1C1C", "stroke": null },
+        { "type": "image", "x": 420, "y": 30, "width": 102, "height": 51,
+          "format": "png",
+          "data": "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAECAIAAAA8r+mnAAAAEUlEQVR42mP4s1MIK2KgngQAOgk44Woo1GcAAAAASUVORK5CYII=" },
+        { "type": "text", "x": 70.9, "y": 30.0, "width": 300.0, "height": 36.0,
+          "lines": [
+            { "baseline": 22.0, "height": 28.0, "align": "left",
+              "runs": [ { "text": "Jane Doe", "font": "Helvetica", "size": 24.0,
+                          "bold": true, "italic": false, "color": "#FFFFFF", "underline": false, "link": null } ] },
+            { "baseline": 34.0, "height": 12.0, "align": "left",
+              "runs": [ { "text": "Data engineer", "font": "Helvetica", "size": 10.0,
+                          "bold": false, "italic": true, "color": "#FCB912", "underline": false, "link": null } ] }
+          ] },
+        { "type": "text", "x": 70.9, "y": 100.2, "width": 453.5, "height": 40.5,
+          "lines": [
+            { "baseline": 9.6, "height": 13.5, "align": "justify",
+              "runs": [
+                { "text": "Hello ", "font": "Helvetica", "size": 10.0, "bold": false, "italic": false,
+                  "color": "#515151", "underline": false, "link": null },
+                { "text": "world", "font": "Helvetica", "size": 10.0, "bold": true, "italic": false,
+                  "color": "#515151", "underline": false, "link": null },
+                { "text": ", this justified line is stretched to the full width.", "font": "Helvetica", "size": 10.0,
+                  "bold": false, "italic": false, "color": "#515151", "underline": false, "link": null } ] },
+            { "baseline": 23.1, "height": 13.5, "align": "left",
+              "runs": [
+                { "text": "Contact: ", "font": "Helvetica", "size": 10.0, "bold": false, "italic": false,
+                  "color": "#515151", "underline": false, "link": null },
+                { "text": "example.com", "font": "Helvetica", "size": 10.0, "bold": false, "italic": false,
+                  "color": "#0000EE", "underline": true, "link": "https://example.com/" } ] },
+            { "baseline": 36.6, "height": 12.0, "align": "right",
+              "runs": [ { "text": "right aligned", "font": "Helvetica", "size": 10.0, "bold": false, "italic": false,
+                          "color": "#515151", "underline": false, "link": null } ] }
+          ] },
+        { "type": "line", "x1": 70.9, "y1": 150, "x2": 524.4, "y2": 150,
+          "stroke": { "color": "#FCB912", "width": 0.6 } },
+        { "type": "rect", "x": 70.9, "y": 160, "width": 120, "height": 30,
+          "fill": null, "stroke": { "color": "#515151", "width": 0.8 } }
+      ]
+    },
+    {
+      "width": 595.28,
+      "height": 841.89,
+      "items": [
+        { "type": "text", "x": 70.9, "y": 70.9, "width": 453.5, "height": 14.0,
+          "lines": [
+            { "baseline": 9.6, "height": 12.0, "align": "center",
+              "runs": [ { "text": "Page two", "font": "Helvetica", "size": 10.0, "bold": false, "italic": false,
+                          "color": "#1C1C1C", "underline": false, "link": null } ] }
+          ] },
+        { "type": "line", "x1": 70.9, "y1": 800, "x2": 524.4, "y2": 780,
+          "stroke": { "color": "#FCB912", "width": 0.6 } }
+      ]
+    }
+  ]
+}
