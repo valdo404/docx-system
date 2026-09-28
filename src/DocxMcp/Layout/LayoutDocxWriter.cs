@@ -88,8 +88,10 @@ public static class LayoutDocxWriter
         public MainDocumentPart Main { get; } = main;
         public LayoutDocxOptions Options { get; } = options;
         public uint NextDocPrId = 1;
-        public uint NextZ = 1;
+        // Word's own z-order scheme (251658240 + 1024 per object); small values are not honoured.
+        public uint NextZ = 251659264;
         public int NextImage = 1;
+        public uint TakeZ() { var z = NextZ; NextZ += 1024; return z; }
         public readonly Dictionary<string, string> LinkIds = new(StringComparer.Ordinal);
     }
 
@@ -192,7 +194,7 @@ public static class LayoutDocxWriter
         foreach (var d in new[] { "distT", "distB", "distL", "distR" })
             x.WriteAttributeString(d, "0");
         x.WriteAttributeString("simplePos", "0");
-        x.WriteAttributeString("relativeHeight", (ctx.NextZ++).ToString(CultureInfo.InvariantCulture));
+        x.WriteAttributeString("relativeHeight", ctx.TakeZ().ToString(CultureInfo.InvariantCulture));
         x.WriteAttributeString("behindDoc", "0");
         x.WriteAttributeString("locked", "0");
         x.WriteAttributeString("layoutInCell", "1");

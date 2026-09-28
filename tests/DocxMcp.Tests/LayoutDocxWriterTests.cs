@@ -294,8 +294,9 @@ public class LayoutDocxWriterTests
     {
         var m = BaselineModel.Default;
         Assert.Equal(11.2, m.BaselineOffset(14, 10), 9);
-        Assert.Equal(8.0, m.BaselineOffset(6, 10), 9);   // line smaller than font: size-based
+        Assert.Equal(4.8, m.BaselineOffset(6, 10), 9);   // measured: also when the line is smaller than the font
         Assert.Equal(14, m.SolveLineHeight(11.2, 10)!.Value, 6);
-        Assert.Null(m.SolveLineHeight(7.0, 10));         // unreachable: below 0.8 × size
+        Assert.Equal(5, m.SolveLineHeight(4.0, 10)!.Value, 6);
+        Assert.Null(m.SolveLineHeight(0.0, 10));         // unreachable: baseline at the line top
     }
 }
