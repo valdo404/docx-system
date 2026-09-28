@@ -126,6 +126,7 @@ public sealed class SomeTools
 | `DOCX_AUTO_SAVE` | `true` | Auto-save to source file after each edit |
 | `STORAGE_GRPC_URL` | _(unset)_ | Remote gRPC URL for history storage (enables dual-server mode) |
 | `SYNC_GRPC_URL` | _(unset)_ | Remote gRPC URL for sync/watch (e.g. `http://gdrive:50052`). Falls back to `STORAGE_GRPC_URL` if unset |
+| `DOCX_LAYOUT_BASELINE_RATIO` | `0.8` | `from-layout` / `document_from_layout`: baseline position inside exact-height lines (see `docs/layout-to-docx.md`) |
 
 ### Docker Compose Deployment
 
