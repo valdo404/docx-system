@@ -32,6 +32,10 @@ args = filteredArgs.ToArray();
 // Set tenant context for all operations
 TenantContextHelper.CurrentTenantId = tenantId;
 
+// Standalone commands: no session storage / gRPC bootstrap needed.
+if (args.Length > 0 && args[0].Equals("from-layout", StringComparison.OrdinalIgnoreCase))
+    return CmdFromLayout(args);
+
 // Create gRPC storage clients (embedded or remote)
 var isDebug = Environment.GetEnvironmentVariable("DEBUG") is not null;
 var storageOptions = StorageClientOptions.FromEnvironment();
@@ -628,6 +632,39 @@ static string ReadStdin()
     throw new ArgumentException("Missing argument. Provide inline or pipe via stdin.");
 }
 
+// from-layout <layout.json|-> -o <out.docx> [--baseline-ratio R] [--slack PT]
+static int CmdFromLayout(string[] a)
+{
+    try
+    {
+        var input = (a.Length > 1 && a[1] == "-" ? "-" : GetNonFlagArg(a, 1)) ?? throw new ArgumentException("Missing required argument: layout.json (or - for stdin)");
+        var output = OptNamed(a, "-o") ?? OptNamed(a, "--output")
+            ?? throw new ArgumentException("Missing required option: -o <out.docx>");
+        var ratio = OptNamed(a, "--baseline-ratio");
+        var slack = OptNamed(a, "--slack");
+
+        var options = new DocxMcp.Layout.LayoutDocxOptions
+        {
+            Baseline = ratio is null
+                ? DocxMcp.Layout.BaselineModel.FromEnvironment()
+                : new DocxMcp.Layout.BaselineModel(double.Parse(ratio, System.Globalization.CultureInfo.InvariantCulture)),
+            HorizontalSlack = slack is null ? 24 : double.Parse(slack, System.Globalization.CultureInfo.InvariantCulture),
+        };
+        var json = input == "-" ? ReadStdin() : File.ReadAllText(input);
+        var layout = DocxMcp.Layout.LayoutParser.Parse(json);
+        using (var fs = File.Create(output))
+            DocxMcp.Layout.LayoutDocxWriter.Write(layout, fs, options);
+        var items = layout.Pages.Sum(p => p.Items.Count);
+        Console.WriteLine($"Wrote {output}: {layout.Pages.Count} page(s), {items} item(s)");
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
 static string Usage()
 {
     PrintUsage();
@@ -700,6 +737,11 @@ static void PrintUsage()
     Export commands:
       export <doc_id> <format> [output_path]   (format: html, markdown, pdf, docx)
 
+    Layout commands (standalone, no session):
+      from-layout <layout.json|-> -o <out.docx> [--baseline-ratio R] [--slack PT]
+                                 Build a new .docx from an absolute layout
+                                 (see docs/layout-to-docx.md)
+
     Diff commands:
       diff <doc_id> [file_path] [--threshold 0.6] [--format text|json|patch]
                                  Compare session with file (default: source file)
@@ -725,6 +767,7 @@ static void PrintUsage()
       DOCX_CHECKPOINT_INTERVAL     Create checkpoint every N entries (default: 10)
       DOCX_AUTO_SAVE               Auto-save to source file after each edit (default: true)
       DEBUG                        Enable debug logging for sync operations
+      DOCX_LAYOUT_BASELINE_RATIO   from-layout: baseline position ratio in exact lines (default: 0.8)
 
     Sessions persist between invocations and are shared with the MCP server.
     WAL history is preserved automatically; use 'close' to permanently delete a session.
