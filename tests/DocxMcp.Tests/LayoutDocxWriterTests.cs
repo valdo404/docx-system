@@ -300,3 +300,33 @@ public class LayoutDocxWriterTests
         Assert.Null(m.SolveLineHeight(0.0, 10));         // unreachable: baseline at the line top
     }
 }
+
+public class LayoutToolsTests
+{
+    [Fact]
+    public void DocumentFromLayout_ReturnsBase64Docx_OrWritesFile()
+    {
+        var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "layout-sample.json"));
+
+        var b64 = DocxMcp.Tools.LayoutTools.DocumentFromLayout(json);
+        var bytes = Convert.FromBase64String(b64);
+        using (var doc = WordprocessingDocument.Open(new MemoryStream(bytes), false))
+            Assert.Equal(2, doc.MainDocumentPart!.Document.Body!.Elements<Paragraph>().Count());
+
+        var path = Path.Combine(Path.GetTempPath(), $"layout-{Guid.NewGuid():N}.docx");
+        try
+        {
+            var msg = DocxMcp.Tools.LayoutTools.DocumentFromLayout(json, path);
+            Assert.Contains("2 page(s)", msg);
+            Assert.Equal(bytes, File.ReadAllBytes(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void DocumentFromLayout_InvalidJson_ThrowsMcpException()
+    {
+        Assert.Throws<ModelContextProtocol.McpException>(
+            () => DocxMcp.Tools.LayoutTools.DocumentFromLayout("""{"version":1,"pages":[{"width":1}]}"""));
+    }
+}
