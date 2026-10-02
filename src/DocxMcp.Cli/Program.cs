@@ -35,6 +35,8 @@ TenantContextHelper.CurrentTenantId = tenantId;
 // Standalone commands: no session storage / gRPC bootstrap needed.
 if (args.Length > 0 && args[0].Equals("from-layout", StringComparison.OrdinalIgnoreCase))
     return CmdFromLayout(args);
+if (args.Length > 0 && args[0].Equals("dump", StringComparison.OrdinalIgnoreCase))
+    return CmdDump(args);
 
 // Create gRPC storage clients (embedded or remote)
 var isDebug = Environment.GetEnvironmentVariable("DEBUG") is not null;
@@ -739,6 +741,9 @@ static void PrintUsage()
 
     Layout commands (standalone, no session):
       from-layout <layout.json|-> -o <out.docx> [--baseline-ratio R] [--slack PT]
+      dump <file.docx|-> [-o out.json]    Read-only JSON dump: blocks, runs with effective
+                                         formatting, numbering, tables, text boxes, headers,
+                                         footers, images, page setup, theme colours
                                  Build a new .docx from an absolute layout
                                  (see docs/layout-to-docx.md)
 
@@ -772,4 +777,42 @@ static void PrintUsage()
     Sessions persist between invocations and are shared with the MCP server.
     WAL history is preserved automatically; use 'close' to permanently delete a session.
     """);
+}
+
+// dump <file.docx|-> [-o out.json]: read-only JSON dump (DocxMcp.Layout.TechnicalDump)
+static int CmdDump(string[] a)
+{
+    if (a.Length < 2)
+    {
+        Console.Error.WriteLine("usage: dump <file.docx|-> [-o out.json]");
+        return 2;
+    }
+    try
+    {
+        string? output = null;
+        for (var i = 2; i < a.Length; i++)
+            if ((a[i] == "-o" || a[i] == "--output") && i + 1 < a.Length) output = a[++i];
+        byte[] input;
+        if (a[1] == "-")
+        {
+            using var stdin = Console.OpenStandardInput();
+            using var ms = new MemoryStream();
+            stdin.CopyTo(ms);
+            input = ms.ToArray();
+        }
+        else input = File.ReadAllBytes(a[1]);
+        var json = DocxMcp.Layout.TechnicalDump.Dump(input);
+        if (output is null)
+        {
+            using var stdout = Console.OpenStandardOutput();
+            stdout.Write(json);
+        }
+        else File.WriteAllBytes(output, json);
+        return 0;
+    }
+    catch (Exception e)
+    {
+        Console.Error.WriteLine($"dump: {e.Message}");
+        return 1;
+    }
 }
